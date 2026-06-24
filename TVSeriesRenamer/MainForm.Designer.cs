@@ -44,6 +44,7 @@
             btnUndo = new Button();
             dgvPreview = new DataGridView();
             chkForceRename = new CheckBox();
+            lblVersion = new Label();
             ((System.ComponentModel.ISupportInitialize)dgvPreview).BeginInit();
             SuspendLayout();
             // 
@@ -196,11 +197,21 @@
             chkForceRename.Text = "Force Rename (ignore series mismatch)";
             chkForceRename.UseVisualStyleBackColor = true;
             // 
+            // lblVersion
+            // 
+            lblVersion.AutoSize = true;
+            lblVersion.Location = new Point(886, 21);
+            lblVersion.Name = "lblVersion";
+            lblVersion.Size = new Size(63, 15);
+            lblVersion.TabIndex = 16;
+            lblVersion.Text = "Version 1.1";
+            // 
             // MainForm
             // 
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(961, 531);
+            Controls.Add(lblVersion);
             Controls.Add(chkForceRename);
             Controls.Add(dgvPreview);
             Controls.Add(btnUndo);
@@ -217,7 +228,7 @@
             Controls.Add(txtFolderPath);
             Controls.Add(btnSelectFolder);
             Name = "MainForm";
-            Text = "TV Series Renamer";
+            Text = "TV Series Renamer v1.1";
             ((System.ComponentModel.ISupportInitialize)dgvPreview).EndInit();
             ResumeLayout(false);
             PerformLayout();
@@ -241,5 +252,6 @@
         private Button btnUndo;
         private DataGridView dgvPreview;
         private CheckBox chkForceRename;
+        private Label lblVersion;
     }
 }
