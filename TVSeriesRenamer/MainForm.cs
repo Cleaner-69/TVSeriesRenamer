@@ -15,6 +15,7 @@ namespace TVSeriesRenamer
     public partial class MainForm : Form
     {
         private ToolTip toolTip = new ToolTip();
+
         // ---- TVDB CONFIG ----
         private string apiKey = "";
         private string apiToken = "";
@@ -24,10 +25,10 @@ namespace TVSeriesRenamer
 
         // ---- LOCAL SETTINGS / LOGGING ----
         private readonly string settingsDirectory =
-     Path.Combine(
-         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-         "TVSeriesRenamer"
-     );
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "TVSeriesRenamer"
+            );
 
         private string SettingsFilePath =>
             Path.Combine(settingsDirectory, "appsettings.json");
@@ -65,6 +66,7 @@ namespace TVSeriesRenamer
 
             SetupPreviewGrid();
             LoadApiKey();
+
             toolTip.AutoPopDelay = 5000;
             toolTip.InitialDelay = 500;
             toolTip.ReshowDelay = 200;
@@ -115,7 +117,7 @@ namespace TVSeriesRenamer
             dgvPreview.AllowUserToDeleteRows = false;
             dgvPreview.RowHeadersVisible = false;
 
-            // ✅ FIX: Consistent height
+            // Fixed row height to keep preview readable and stable.
             dgvPreview.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.None;
             dgvPreview.DefaultCellStyle.WrapMode = DataGridViewTriState.False;
             dgvPreview.RowTemplate.Height = 22;
@@ -137,6 +139,7 @@ namespace TVSeriesRenamer
             dgvPreview.Columns["Original"].HeaderCell.ToolTipText = "Original file";
             dgvPreview.Columns["New"].HeaderCell.ToolTipText = "New file or reason";
         }
+
         private void SetupToolTips()
         {
             toolTip.SetToolTip(btnSelectFolder, "Select folder with files");
@@ -144,6 +147,8 @@ namespace TVSeriesRenamer
             toolTip.SetToolTip(btnRename, "Apply rename");
             toolTip.SetToolTip(btnUndo, "Undo last rename");
             toolTip.SetToolTip(btnFetchSeries, "Fetch series from TVDB");
+            toolTip.SetToolTip(btnSaveApiKey, "Save the TVDB API key");
+            toolTip.SetToolTip(btnToggleApiKey, "Show or hide the TVDB API key");
 
             toolTip.SetToolTip(txtFolderPath, "Folder path");
             toolTip.SetToolTip(txtSeriesName, "Series to search");
@@ -151,6 +156,7 @@ namespace TVSeriesRenamer
 
             toolTip.SetToolTip(lstSeriesResults, "Select correct series");
         }
+
         private void AddPreviewRow(string status, string originalName, string newNameOrReason)
         {
             int rowIndex = dgvPreview.Rows.Add(status, originalName, newNameOrReason);
@@ -174,10 +180,17 @@ namespace TVSeriesRenamer
                     row.DefaultCellStyle.BackColor = Color.LightYellow;
                     break;
 
+                case "WRONG SERIES":
+                    row.DefaultCellStyle.BackColor = Color.Orange;
+                    break;
+
                 case "ERROR":
                     row.DefaultCellStyle.BackColor = Color.LightCoral;
                     break;
             }
+
+            row.Cells["Original"].ToolTipText = originalName;
+            row.Cells["New"].ToolTipText = newNameOrReason;
         }
 
         // ---- UI EVENTS ----
@@ -188,11 +201,9 @@ namespace TVSeriesRenamer
                 if (dialog.ShowDialog() == DialogResult.OK)
                 {
                     txtFolderPath.Text = dialog.SelectedPath;
-
                     previewItems.Clear();
                     episodeTitles.Clear();
                     dgvPreview.Rows.Clear();
-
                     btnRename.Enabled = false;
                     btnFetchSeries.Enabled = false;
                 }
@@ -207,7 +218,6 @@ namespace TVSeriesRenamer
         private void btnRename_Click(object sender, EventArgs e)
         {
             int successCount = 0;
-
             List<RenamePreviewItem> successfulRenames = new List<RenamePreviewItem>();
             List<string> logEntries = new List<string>();
 
@@ -315,7 +325,6 @@ namespace TVSeriesRenamer
             MessageBox.Show($"Undo completed. {successCount} files restored.");
 
             btnUndo.Enabled = undoStack.Count > 0;
-
             RefreshPreviewAfterOperation();
         }
 
@@ -354,7 +363,6 @@ namespace TVSeriesRenamer
         private void btnToggleApiKey_Click(object sender, EventArgs e)
         {
             isApiKeyVisible = !isApiKeyVisible;
-
             txtApiKey.UseSystemPasswordChar = !isApiKeyVisible;
             btnToggleApiKey.Text = isApiKeyVisible ? "Hide Key" : "Show Key";
         }
@@ -530,6 +538,12 @@ namespace TVSeriesRenamer
             {
                 string originalName = Path.GetFileName(file);
 
+                if (IsLikelyWrongSeries(originalName, selectedSeriesName))
+                {
+                    AddPreviewRow("WRONG SERIES", originalName, $"Selected series: {selectedSeriesName}");
+                    continue;
+                }
+
                 if (!TryExtractEpisodeCode(originalName, out int seasonNumber, out int episodeNumber, out string episodeCode))
                 {
                     AddPreviewRow("NO MATCH", originalName, "");
@@ -568,6 +582,65 @@ namespace TVSeriesRenamer
             btnRename.Enabled = previewItems.Count > 0;
         }
 
+        // ---- WRONG SERIES DETECTION ----
+        private bool IsLikelyWrongSeries(string fileName, string selectedSeriesName)
+        {
+            if (string.IsNullOrWhiteSpace(fileName) || string.IsNullOrWhiteSpace(selectedSeriesName))
+                return false;
+
+            string candidateSeriesName = ExtractSeriesCandidateFromFileName(fileName);
+
+            if (string.IsNullOrWhiteSpace(candidateSeriesName))
+                return false;
+
+            string normalisedCandidate = NormaliseSeriesName(candidateSeriesName);
+            string normalisedSelected = NormaliseSeriesName(selectedSeriesName);
+
+            if (string.IsNullOrWhiteSpace(normalisedCandidate) || string.IsNullOrWhiteSpace(normalisedSelected))
+                return false;
+
+            if (normalisedCandidate.Contains(normalisedSelected) || normalisedSelected.Contains(normalisedCandidate))
+                return false;
+
+            return true;
+        }
+
+        private string ExtractSeriesCandidateFromFileName(string fileName)
+        {
+            string nameWithoutExtension = Path.GetFileNameWithoutExtension(fileName);
+
+            Match episodeMatch = Regex.Match(
+                nameWithoutExtension,
+                @"S\d{1,2}E\d{1,2}",
+                RegexOptions.IgnoreCase
+            );
+
+            if (!episodeMatch.Success)
+                return "";
+
+            string candidate = nameWithoutExtension.Substring(0, episodeMatch.Index);
+
+            candidate = Regex.Replace(candidate, @"[\._\-]+", " ");
+            candidate = Regex.Replace(candidate, @"\b(19|20)\d{2}\b", " ");
+            candidate = Regex.Replace(candidate, @"\s+", " ").Trim();
+
+            if (candidate.Length < 3)
+                return "";
+
+            return candidate;
+        }
+
+        private string NormaliseSeriesName(string value)
+        {
+            string normalised = value.ToLowerInvariant();
+
+            normalised = Regex.Replace(normalised, @"\b(19|20)\d{2}\b", " ");
+            normalised = Regex.Replace(normalised, @"[^a-z0-9]+", " ");
+            normalised = Regex.Replace(normalised, @"\s+", " ").Trim();
+
+            return normalised;
+        }
+
         // ---- RENAME LOGIC ----
         private string? GenerateNewName(string fileName)
         {
@@ -596,6 +669,7 @@ namespace TVSeriesRenamer
 
             seasonNumber = int.Parse(match.Groups[1].Value);
             episodeNumber = int.Parse(match.Groups[2].Value);
+
             episodeCode = $"S{seasonNumber:D2}E{episodeNumber:D2}";
 
             return true;
@@ -717,7 +791,6 @@ namespace TVSeriesRenamer
 
                     seriesResults.Clear();
                     lstSeriesResults.Items.Clear();
-
                     selectedSeriesId = 0;
                     selectedSeriesName = "";
                     episodeTitles.Clear();
