@@ -43,6 +43,7 @@
             btnToggleApiKey = new Button();
             btnUndo = new Button();
             dgvPreview = new DataGridView();
+            chkForceRename = new CheckBox();
             ((System.ComponentModel.ISupportInitialize)dgvPreview).BeginInit();
             SuspendLayout();
             // 
@@ -185,11 +186,22 @@
             dgvPreview.Size = new Size(950, 245);
             dgvPreview.TabIndex = 14;
             // 
+            // chkForceRename
+            // 
+            chkForceRename.AutoSize = true;
+            chkForceRename.Location = new Point(226, 342);
+            chkForceRename.Name = "chkForceRename";
+            chkForceRename.Size = new Size(234, 19);
+            chkForceRename.TabIndex = 15;
+            chkForceRename.Text = "Force Rename (ignore series mismatch)";
+            chkForceRename.UseVisualStyleBackColor = true;
+            // 
             // MainForm
             // 
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(961, 531);
+            Controls.Add(chkForceRename);
             Controls.Add(dgvPreview);
             Controls.Add(btnUndo);
             Controls.Add(btnToggleApiKey);
@@ -228,5 +240,6 @@
         private Button btnToggleApiKey;
         private Button btnUndo;
         private DataGridView dgvPreview;
+        private CheckBox chkForceRename;
     }
 }

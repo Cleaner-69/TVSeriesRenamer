@@ -538,7 +538,7 @@ namespace TVSeriesRenamer
             {
                 string originalName = Path.GetFileName(file);
 
-                if (IsLikelyWrongSeries(originalName, selectedSeriesName))
+                if (!chkForceRename.Checked && IsLikelyWrongSeries(originalName, selectedSeriesName))
                 {
                     AddPreviewRow("WRONG SERIES", originalName, $"Selected series: {selectedSeriesName}");
                     continue;
