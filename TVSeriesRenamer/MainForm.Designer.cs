@@ -45,6 +45,7 @@
             dgvPreview = new DataGridView();
             chkForceRename = new CheckBox();
             lblVersion = new Label();
+            btnApiHelp = new Button();
             ((System.ComponentModel.ISupportInitialize)dgvPreview).BeginInit();
             SuspendLayout();
             // 
@@ -206,11 +207,22 @@
             lblVersion.TabIndex = 16;
             lblVersion.Text = "Version 1.1";
             // 
+            // btnApiHelp
+            // 
+            btnApiHelp.Location = new Point(711, 20);
+            btnApiHelp.Name = "btnApiHelp";
+            btnApiHelp.Size = new Size(89, 23);
+            btnApiHelp.TabIndex = 17;
+            btnApiHelp.Text = "Get API Key";
+            btnApiHelp.UseVisualStyleBackColor = true;
+            btnApiHelp.Click += btnApiHelp_Click;
+            // 
             // MainForm
             // 
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(961, 531);
+            Controls.Add(btnApiHelp);
             Controls.Add(lblVersion);
             Controls.Add(chkForceRename);
             Controls.Add(dgvPreview);
@@ -253,5 +265,6 @@
         private DataGridView dgvPreview;
         private CheckBox chkForceRename;
         private Label lblVersion;
+        private Button btnApiHelp;
     }
 }

@@ -952,5 +952,13 @@ namespace TVSeriesRenamer
                 // Silent fail — do NOT break app if update check fails
             }
         }
+        private void btnApiHelp_Click(object sender, EventArgs e)
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "https://thetvdb.com/api-information",
+                UseShellExecute = true
+            });
+        }
     }
 }
