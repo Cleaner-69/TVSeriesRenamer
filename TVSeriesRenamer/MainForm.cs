@@ -9,12 +9,18 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using System.Diagnostics;
 
 namespace TVSeriesRenamer
 {
     public partial class MainForm : Form
     {
         private ToolTip toolTip = new ToolTip();
+
+        // ---- APPLICATION VERSION / UPDATE CHECK ----
+        private const string CurrentVersion = "v1.1";
+        private const string LatestReleaseApiUrl = "https://api.github.com/repos/Cleaner-69/TVSeriesRenamer/releases/latest";
+        private const string GitHubUserAgent = "TVSeriesRenamer";
 
         // ---- TVDB CONFIG ----
         private string apiKey = "";
@@ -73,7 +79,9 @@ namespace TVSeriesRenamer
             toolTip.ShowAlways = true;
 
             SetupToolTips();
-            _ = CheckForUpdates();
+            
+            Text = $"TV Series Renamer {CurrentVersion}";
+            _ = CheckForUpdatesAsync();
         }
 
         // ---- MODELS ----
@@ -717,6 +725,94 @@ namespace TVSeriesRenamer
             }
 
             return 0;
+        }
+
+        // ---- GITHUB UPDATE CHECK ----
+        private async Task CheckForUpdatesAsync()
+        {
+            try
+            {
+                using (HttpClient client = new HttpClient())
+                {
+                    client.DefaultRequestHeaders.UserAgent.ParseAdd(GitHubUserAgent);
+
+                    HttpResponseMessage response = await client.GetAsync(LatestReleaseApiUrl);
+
+                    if (!response.IsSuccessStatusCode)
+                        return;
+
+                    string responseString = await response.Content.ReadAsStringAsync();
+
+                    using (JsonDocument doc = JsonDocument.Parse(responseString))
+                    {
+                        string latestVersion = GetJsonString(doc.RootElement, "tag_name");
+                        string releaseUrl = GetJsonString(doc.RootElement, "html_url");
+
+                        if (string.IsNullOrWhiteSpace(latestVersion) || string.IsNullOrWhiteSpace(releaseUrl))
+                            return;
+
+                        if (!IsNewerVersion(latestVersion, CurrentVersion))
+                            return;
+
+                        DialogResult result = MessageBox.Show(
+                            $"A newer version of TV Series Renamer is available.\n\n" +
+                            $"Current version: {CurrentVersion}\n" +
+                            $"Latest version: {latestVersion}\n\n" +
+                            "Do you want to open the download page?",
+                            "Update Available",
+                            MessageBoxButtons.YesNo,
+                            MessageBoxIcon.Information
+                        );
+
+                        if (result == DialogResult.Yes)
+                        {
+                            Process.Start(new ProcessStartInfo
+                            {
+                                FileName = releaseUrl,
+                                UseShellExecute = true
+                            });
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // Update checks must never block or break the app.
+                // Silent failure is intentional.
+            }
+        }
+        private bool IsNewerVersion(string latestVersionText, string currentVersionText)
+        {
+            Version? latestVersion = ParseVersionTag(latestVersionText);
+            Version? currentVersion = ParseVersionTag(currentVersionText);
+
+            if (latestVersion == null || currentVersion == null)
+                return false;
+
+            return latestVersion.CompareTo(currentVersion) > 0;
+        }
+
+        private Version? ParseVersionTag(string versionText)
+        {
+            if (string.IsNullOrWhiteSpace(versionText))
+                return null;
+
+            string cleanedVersion = versionText.Trim();
+
+            if (cleanedVersion.StartsWith("v", StringComparison.OrdinalIgnoreCase))
+            {
+                cleanedVersion = cleanedVersion.Substring(1);
+            }
+
+            Match match = Regex.Match(cleanedVersion, @"^\d+(\.\d+){0,3}");
+
+            if (!match.Success)
+                return null;
+
+            if (Version.TryParse(match.Value, out Version? parsedVersion))
+                return parsedVersion;
+
+            return null;
         }
 
         // ---- TVDB AUTHENTICATION ----
