@@ -73,6 +73,7 @@ namespace TVSeriesRenamer
             toolTip.ShowAlways = true;
 
             SetupToolTips();
+            _ = CheckForUpdates();
         }
 
         // ---- MODELS ----
@@ -907,6 +908,49 @@ namespace TVSeriesRenamer
             MessageBox.Show($"Loaded {episodeTitles.Count} episode titles for {selectedSeriesName}.");
 
             return episodeTitles.Count > 0;
+        }
+        private async Task CheckForUpdates()
+        {
+            try
+            {
+                using (HttpClient client = new HttpClient())
+                {
+                    client.DefaultRequestHeaders.Add("User-Agent", "TVSeriesRenamer");
+
+                    string url = "https://api.github.com/repos/Cleaner-69/TVSeriesRenamer/releases/latest";
+                    string response = await client.GetStringAsync(url);
+
+                    using (JsonDocument doc = JsonDocument.Parse(response))
+                    {
+                        string latestVersion = doc.RootElement.GetProperty("tag_name").GetString() ?? "";
+                        string currentVersion = "v1.0"; // 🔧 update manually per version
+
+                        if (!string.Equals(latestVersion, currentVersion, StringComparison.OrdinalIgnoreCase))
+                        {
+                            var result = MessageBox.Show(
+                                $"A new version ({latestVersion}) is available.\n\nDo you want to download it?",
+                                "Update Available",
+                                MessageBoxButtons.YesNo,
+                                MessageBoxIcon.Information
+                            );
+
+                            if (result == DialogResult.Yes)
+                            {
+                                string downloadUrl = doc.RootElement.GetProperty("html_url").GetString() ?? "";
+                                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                                {
+                                    FileName = downloadUrl,
+                                    UseShellExecute = true
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // Silent fail — do NOT break app if update check fails
+            }
         }
     }
 }
