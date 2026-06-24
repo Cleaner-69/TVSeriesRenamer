@@ -1,0 +1,838 @@
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.IO;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+
+namespace TVSeriesRenamer
+{
+    public partial class MainForm : Form
+    {
+        private ToolTip toolTip = new ToolTip();
+        // ---- TVDB CONFIG ----
+        private string apiKey = "";
+        private string apiToken = "";
+
+        // ---- API KEY VISIBILITY ----
+        private bool isApiKeyVisible = false;
+
+        // ---- LOCAL SETTINGS / LOGGING ----
+        private readonly string settingsDirectory =
+     Path.Combine(
+         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+         "TVSeriesRenamer"
+     );
+
+        private string SettingsFilePath =>
+            Path.Combine(settingsDirectory, "appsettings.json");
+
+        private string LogFilePath =>
+            Path.Combine(settingsDirectory, "rename_log.txt");
+
+        // ---- RENAME PREVIEW STATE ----
+        private List<RenamePreviewItem> previewItems = new List<RenamePreviewItem>();
+
+        // ---- UNDO STATE ----
+        private Stack<List<RenamePreviewItem>> undoStack = new Stack<List<RenamePreviewItem>>();
+
+        // ---- TVDB SERIES SEARCH STATE ----
+        private List<SeriesSearchResult> seriesResults = new List<SeriesSearchResult>();
+        private int selectedSeriesId = 0;
+        private string selectedSeriesName = "";
+
+        // ---- TVDB EPISODE LOOKUP ----
+        // Key example: S01E01
+        // Value example: Pilot
+        private Dictionary<string, string> episodeTitles =
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        public MainForm()
+        {
+            InitializeComponent();
+
+            btnRename.Enabled = false;
+            btnFetchSeries.Enabled = false;
+            btnUndo.Enabled = false;
+
+            txtApiKey.UseSystemPasswordChar = true;
+            btnToggleApiKey.Text = "Show Key";
+
+            SetupPreviewGrid();
+            LoadApiKey();
+            toolTip.AutoPopDelay = 5000;
+            toolTip.InitialDelay = 500;
+            toolTip.ReshowDelay = 200;
+            toolTip.ShowAlways = true;
+
+            SetupToolTips();
+        }
+
+        // ---- MODELS ----
+        public class RenamePreviewItem
+        {
+            public string OriginalPath { get; set; } = "";
+            public string NewPath { get; set; } = "";
+            public string Status { get; set; } = "";
+        }
+
+        public class SeriesSearchResult
+        {
+            public int Id { get; set; }
+            public string Name { get; set; } = "";
+            public string Type { get; set; } = "";
+
+            public override string ToString()
+            {
+                return string.IsNullOrWhiteSpace(Type)
+                    ? Name
+                    : $"{Name} ({Type})";
+            }
+        }
+
+        public class AppSettings
+        {
+            public string ApiKey { get; set; } = "";
+        }
+
+        // ---- GRID PREVIEW SETUP ----
+        private void SetupPreviewGrid()
+        {
+            dgvPreview.Rows.Clear();
+            dgvPreview.Columns.Clear();
+
+            dgvPreview.Columns.Add("Status", "Status");
+            dgvPreview.Columns.Add("Original", "Original File");
+            dgvPreview.Columns.Add("New", "New File / Reason");
+
+            dgvPreview.ReadOnly = true;
+            dgvPreview.AllowUserToAddRows = false;
+            dgvPreview.AllowUserToDeleteRows = false;
+            dgvPreview.RowHeadersVisible = false;
+
+            // ✅ FIX: Consistent height
+            dgvPreview.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.None;
+            dgvPreview.DefaultCellStyle.WrapMode = DataGridViewTriState.False;
+            dgvPreview.RowTemplate.Height = 22;
+
+            dgvPreview.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
+            dgvPreview.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+            dgvPreview.MultiSelect = false;
+
+            dgvPreview.Columns["Status"].FillWeight = 18;
+            dgvPreview.Columns["Original"].FillWeight = 41;
+            dgvPreview.Columns["New"].FillWeight = 41;
+
+            foreach (DataGridViewColumn column in dgvPreview.Columns)
+            {
+                column.SortMode = DataGridViewColumnSortMode.Automatic;
+            }
+
+            dgvPreview.Columns["Status"].HeaderCell.ToolTipText = "Rename status";
+            dgvPreview.Columns["Original"].HeaderCell.ToolTipText = "Original file";
+            dgvPreview.Columns["New"].HeaderCell.ToolTipText = "New file or reason";
+        }
+        private void SetupToolTips()
+        {
+            toolTip.SetToolTip(btnSelectFolder, "Select folder with files");
+            toolTip.SetToolTip(btnPreview, "Generate preview");
+            toolTip.SetToolTip(btnRename, "Apply rename");
+            toolTip.SetToolTip(btnUndo, "Undo last rename");
+            toolTip.SetToolTip(btnFetchSeries, "Fetch series from TVDB");
+
+            toolTip.SetToolTip(txtFolderPath, "Folder path");
+            toolTip.SetToolTip(txtSeriesName, "Series to search");
+            toolTip.SetToolTip(txtApiKey, "TVDB API key");
+
+            toolTip.SetToolTip(lstSeriesResults, "Select correct series");
+        }
+        private void AddPreviewRow(string status, string originalName, string newNameOrReason)
+        {
+            int rowIndex = dgvPreview.Rows.Add(status, originalName, newNameOrReason);
+            DataGridViewRow row = dgvPreview.Rows[rowIndex];
+
+            switch (status)
+            {
+                case "OK":
+                    row.DefaultCellStyle.BackColor = Color.LightGreen;
+                    break;
+
+                case "SKIP":
+                    row.DefaultCellStyle.BackColor = Color.LightGray;
+                    break;
+
+                case "NO MATCH":
+                    row.DefaultCellStyle.BackColor = Color.Khaki;
+                    break;
+
+                case "NO TVDB TITLE":
+                    row.DefaultCellStyle.BackColor = Color.LightYellow;
+                    break;
+
+                case "ERROR":
+                    row.DefaultCellStyle.BackColor = Color.LightCoral;
+                    break;
+            }
+        }
+
+        // ---- UI EVENTS ----
+        private void btnSelectFolder_Click(object sender, EventArgs e)
+        {
+            using (FolderBrowserDialog dialog = new FolderBrowserDialog())
+            {
+                if (dialog.ShowDialog() == DialogResult.OK)
+                {
+                    txtFolderPath.Text = dialog.SelectedPath;
+
+                    previewItems.Clear();
+                    episodeTitles.Clear();
+                    dgvPreview.Rows.Clear();
+
+                    btnRename.Enabled = false;
+                    btnFetchSeries.Enabled = false;
+                }
+            }
+        }
+
+        private void btnPreview_Click(object sender, EventArgs e)
+        {
+            BuildBasicPreview();
+        }
+
+        private void btnRename_Click(object sender, EventArgs e)
+        {
+            int successCount = 0;
+
+            List<RenamePreviewItem> successfulRenames = new List<RenamePreviewItem>();
+            List<string> logEntries = new List<string>();
+
+            Directory.CreateDirectory(settingsDirectory);
+
+            foreach (RenamePreviewItem item in previewItems)
+            {
+                try
+                {
+                    if (!File.Exists(item.OriginalPath))
+                    {
+                        logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | SKIP | Source not found | {item.OriginalPath}");
+                        continue;
+                    }
+
+                    if (File.Exists(item.NewPath))
+                    {
+                        logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | SKIP | Target already exists | {item.NewPath}");
+                        continue;
+                    }
+
+                    File.Move(item.OriginalPath, item.NewPath);
+                    successCount++;
+
+                    successfulRenames.Add(new RenamePreviewItem
+                    {
+                        OriginalPath = item.OriginalPath,
+                        NewPath = item.NewPath,
+                        Status = "RENAMED"
+                    });
+
+                    logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | RENAMED | {item.OriginalPath} -> {item.NewPath}");
+                }
+                catch (Exception ex)
+                {
+                    logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | ERROR | {item.OriginalPath} -> {item.NewPath} | {ex.Message}");
+                }
+            }
+
+            if (logEntries.Count > 0)
+            {
+                File.AppendAllLines(LogFilePath, logEntries);
+            }
+
+            if (successfulRenames.Count > 0)
+            {
+                undoStack.Push(successfulRenames);
+                btnUndo.Enabled = true;
+            }
+
+            MessageBox.Show($"Rename completed. {successCount} files renamed.");
+
+            btnRename.Enabled = false;
+            RefreshPreviewAfterOperation();
+        }
+
+        private void btnUndo_Click(object sender, EventArgs e)
+        {
+            if (undoStack.Count == 0)
+            {
+                MessageBox.Show("Nothing to undo.");
+                btnUndo.Enabled = false;
+                return;
+            }
+
+            List<RenamePreviewItem> lastOperation = undoStack.Pop();
+
+            int successCount = 0;
+            List<string> logEntries = new List<string>();
+
+            Directory.CreateDirectory(settingsDirectory);
+
+            foreach (RenamePreviewItem item in lastOperation)
+            {
+                try
+                {
+                    if (!File.Exists(item.NewPath))
+                    {
+                        logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | UNDO SKIPPED | Source not found | {item.NewPath}");
+                        continue;
+                    }
+
+                    if (File.Exists(item.OriginalPath))
+                    {
+                        logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | UNDO SKIPPED | Target already exists | {item.OriginalPath}");
+                        continue;
+                    }
+
+                    File.Move(item.NewPath, item.OriginalPath);
+                    successCount++;
+
+                    logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | UNDO | {item.NewPath} -> {item.OriginalPath}");
+                }
+                catch (Exception ex)
+                {
+                    logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | UNDO ERROR | {item.NewPath} -> {item.OriginalPath} | {ex.Message}");
+                }
+            }
+
+            if (logEntries.Count > 0)
+            {
+                File.AppendAllLines(LogFilePath, logEntries);
+            }
+
+            MessageBox.Show($"Undo completed. {successCount} files restored.");
+
+            btnUndo.Enabled = undoStack.Count > 0;
+
+            RefreshPreviewAfterOperation();
+        }
+
+        private async void btnFetchSeries_Click(object sender, EventArgs e)
+        {
+            if (string.IsNullOrWhiteSpace(txtSeriesName.Text))
+            {
+                MessageBox.Show("Please enter a series name first.");
+                return;
+            }
+
+            bool success = await AuthenticateTVDB();
+
+            if (!success)
+                return;
+
+            await SearchSeries(txtSeriesName.Text);
+        }
+
+        private void btnSaveApiKey_Click(object sender, EventArgs e)
+        {
+            if (string.IsNullOrWhiteSpace(txtApiKey.Text))
+            {
+                MessageBox.Show("Please enter a valid API key.");
+                return;
+            }
+
+            apiKey = txtApiKey.Text.Trim();
+            apiToken = "";
+
+            SaveApiKey();
+
+            MessageBox.Show("API key saved.");
+        }
+
+        private void btnToggleApiKey_Click(object sender, EventArgs e)
+        {
+            isApiKeyVisible = !isApiKeyVisible;
+
+            txtApiKey.UseSystemPasswordChar = !isApiKeyVisible;
+            btnToggleApiKey.Text = isApiKeyVisible ? "Hide Key" : "Show Key";
+        }
+
+        private async void lstSeriesResults_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            if (lstSeriesResults.SelectedItem is SeriesSearchResult selected)
+            {
+                selectedSeriesId = selected.Id;
+                selectedSeriesName = selected.Name;
+
+                MessageBox.Show($"Selected series: {selectedSeriesName}");
+
+                bool loaded = await FetchEpisodesForSelectedSeries();
+
+                if (loaded)
+                {
+                    BuildPreviewWithEpisodeTitles();
+                }
+            }
+        }
+
+        // ---- COMPATIBILITY WRAPPERS FOR DESIGNER AUTO-NAMING ----
+        private void btnSelectFolder_Click_1(object sender, EventArgs e)
+        {
+            btnSelectFolder_Click(sender, e);
+        }
+
+        private void btnPreview_Click_1(object sender, EventArgs e)
+        {
+            btnPreview_Click(sender, e);
+        }
+
+        private void btnRename_Click_1(object sender, EventArgs e)
+        {
+            btnRename_Click(sender, e);
+        }
+
+        private void btnUndo_Click_1(object sender, EventArgs e)
+        {
+            btnUndo_Click(sender, e);
+        }
+
+        private void btnFetchSeries_Click_1(object sender, EventArgs e)
+        {
+            btnFetchSeries_Click(sender, e);
+        }
+
+        private void btnSaveApiKey_Click_1(object sender, EventArgs e)
+        {
+            btnSaveApiKey_Click(sender, e);
+        }
+
+        private void btnToggleApiKey_Click_1(object sender, EventArgs e)
+        {
+            btnToggleApiKey_Click(sender, e);
+        }
+
+        private void lstSeriesResults_SelectedIndexChanged_1(object sender, EventArgs e)
+        {
+            lstSeriesResults_SelectedIndexChanged(sender, e);
+        }
+
+        // ---- SETTINGS LOAD / SAVE ----
+        private void SaveApiKey()
+        {
+            Directory.CreateDirectory(settingsDirectory);
+
+            AppSettings settings = new AppSettings
+            {
+                ApiKey = apiKey
+            };
+
+            string json = JsonSerializer.Serialize(settings, new JsonSerializerOptions
+            {
+                WriteIndented = true
+            });
+
+            File.WriteAllText(SettingsFilePath, json);
+        }
+
+        private void LoadApiKey()
+        {
+            if (!File.Exists(SettingsFilePath))
+                return;
+
+            try
+            {
+                string json = File.ReadAllText(SettingsFilePath);
+                AppSettings? settings = JsonSerializer.Deserialize<AppSettings>(json);
+
+                if (settings == null || string.IsNullOrWhiteSpace(settings.ApiKey))
+                    return;
+
+                apiKey = settings.ApiKey;
+                txtApiKey.Text = apiKey;
+            }
+            catch
+            {
+                MessageBox.Show("Could not load saved API key settings.");
+            }
+        }
+
+        // ---- PREVIEW REFRESH ----
+        private void RefreshPreviewAfterOperation()
+        {
+            if (episodeTitles.Count > 0 && selectedSeriesId != 0)
+            {
+                BuildPreviewWithEpisodeTitles();
+            }
+            else
+            {
+                BuildBasicPreview();
+            }
+        }
+
+        // ---- BASIC PREVIEW LOGIC ----
+        private void BuildBasicPreview()
+        {
+            dgvPreview.Rows.Clear();
+            previewItems.Clear();
+
+            if (!Directory.Exists(txtFolderPath.Text))
+                return;
+
+            string[] files = Directory.GetFiles(txtFolderPath.Text);
+
+            foreach (string file in files)
+            {
+                string originalName = Path.GetFileName(file);
+                string? newName = GenerateNewName(originalName);
+
+                if (newName == null)
+                {
+                    AddPreviewRow("NO MATCH", originalName, "");
+                    continue;
+                }
+
+                string newPath = Path.Combine(txtFolderPath.Text, newName);
+
+                if (File.Exists(newPath))
+                {
+                    AddPreviewRow("SKIP", originalName, "Already exists");
+                    continue;
+                }
+
+                previewItems.Add(new RenamePreviewItem
+                {
+                    OriginalPath = file,
+                    NewPath = newPath,
+                    Status = "OK"
+                });
+
+                AddPreviewRow("OK", originalName, newName);
+            }
+
+            btnRename.Enabled = previewItems.Count > 0;
+            btnFetchSeries.Enabled = previewItems.Count > 0;
+        }
+
+        // ---- ENRICHED PREVIEW USING TVDB EPISODE TITLES ----
+        private void BuildPreviewWithEpisodeTitles()
+        {
+            dgvPreview.Rows.Clear();
+            previewItems.Clear();
+
+            if (!Directory.Exists(txtFolderPath.Text))
+                return;
+
+            string[] files = Directory.GetFiles(txtFolderPath.Text);
+
+            foreach (string file in files)
+            {
+                string originalName = Path.GetFileName(file);
+
+                if (!TryExtractEpisodeCode(originalName, out int seasonNumber, out int episodeNumber, out string episodeCode))
+                {
+                    AddPreviewRow("NO MATCH", originalName, "");
+                    continue;
+                }
+
+                if (!episodeTitles.TryGetValue(episodeCode, out string episodeTitle))
+                {
+                    AddPreviewRow("NO TVDB TITLE", originalName, episodeCode);
+                    continue;
+                }
+
+                string safeSeriesName = MakeSafeFileName(selectedSeriesName);
+                string safeEpisodeTitle = MakeSafeFileName(episodeTitle);
+                string extension = Path.GetExtension(file);
+
+                string newName = $"{safeSeriesName} - {episodeCode} - {safeEpisodeTitle}{extension}";
+                string newPath = Path.Combine(txtFolderPath.Text, newName);
+
+                if (File.Exists(newPath))
+                {
+                    AddPreviewRow("SKIP", originalName, "Already exists");
+                    continue;
+                }
+
+                previewItems.Add(new RenamePreviewItem
+                {
+                    OriginalPath = file,
+                    NewPath = newPath,
+                    Status = "OK"
+                });
+
+                AddPreviewRow("OK", originalName, newName);
+            }
+
+            btnRename.Enabled = previewItems.Count > 0;
+        }
+
+        // ---- RENAME LOGIC ----
+        private string? GenerateNewName(string fileName)
+        {
+            if (TryExtractEpisodeCode(fileName, out int seasonNumber, out int episodeNumber, out string episodeCode))
+            {
+                return $"{episodeCode}{Path.GetExtension(fileName)}";
+            }
+
+            return null;
+        }
+
+        private bool TryExtractEpisodeCode(string fileName, out int seasonNumber, out int episodeNumber, out string episodeCode)
+        {
+            seasonNumber = 0;
+            episodeNumber = 0;
+            episodeCode = "";
+
+            Match match = Regex.Match(
+                fileName,
+                @"S(\d+)E(\d+)",
+                RegexOptions.IgnoreCase
+            );
+
+            if (!match.Success)
+                return false;
+
+            seasonNumber = int.Parse(match.Groups[1].Value);
+            episodeNumber = int.Parse(match.Groups[2].Value);
+            episodeCode = $"S{seasonNumber:D2}E{episodeNumber:D2}";
+
+            return true;
+        }
+
+        private string MakeSafeFileName(string value)
+        {
+            foreach (char invalidChar in Path.GetInvalidFileNameChars())
+            {
+                value = value.Replace(invalidChar, '-');
+            }
+
+            return value.Trim();
+        }
+
+        // ---- JSON HELPERS ----
+        private string GetJsonString(JsonElement element, string propertyName)
+        {
+            if (element.TryGetProperty(propertyName, out JsonElement property))
+            {
+                return property.GetString() ?? "";
+            }
+
+            return "";
+        }
+
+        private int GetJsonInt(JsonElement element, params string[] propertyNames)
+        {
+            foreach (string propertyName in propertyNames)
+            {
+                if (element.TryGetProperty(propertyName, out JsonElement property))
+                {
+                    if (property.ValueKind == JsonValueKind.Number && property.TryGetInt32(out int numberValue))
+                    {
+                        return numberValue;
+                    }
+
+                    if (property.ValueKind == JsonValueKind.String && int.TryParse(property.GetString(), out int stringValue))
+                    {
+                        return stringValue;
+                    }
+                }
+            }
+
+            return 0;
+        }
+
+        // ---- TVDB AUTHENTICATION ----
+        private async Task<bool> AuthenticateTVDB()
+        {
+            if (string.IsNullOrWhiteSpace(apiKey))
+            {
+                MessageBox.Show("Please enter and save your API key first.");
+                return false;
+            }
+
+            using (HttpClient client = new HttpClient())
+            {
+                var requestBody = new
+                {
+                    apikey = apiKey
+                };
+
+                string json = JsonSerializer.Serialize(requestBody);
+
+                HttpResponseMessage response = await client.PostAsync(
+                    "https://api4.thetvdb.com/v4/login",
+                    new StringContent(json, Encoding.UTF8, "application/json")
+                );
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    MessageBox.Show("Failed to authenticate with TVDB. Please check your API key.");
+                    return false;
+                }
+
+                string responseString = await response.Content.ReadAsStringAsync();
+
+                using (JsonDocument doc = JsonDocument.Parse(responseString))
+                {
+                    apiToken = doc.RootElement
+                                  .GetProperty("data")
+                                  .GetProperty("token")
+                                  .GetString() ?? "";
+                }
+
+                return !string.IsNullOrWhiteSpace(apiToken);
+            }
+        }
+
+        // ---- TVDB SERIES SEARCH ----
+        private async Task SearchSeries(string seriesName)
+        {
+            using (HttpClient client = new HttpClient())
+            {
+                client.DefaultRequestHeaders.Authorization =
+                    new AuthenticationHeaderValue("Bearer", apiToken);
+
+                string encodedSeriesName = Uri.EscapeDataString(seriesName);
+                string url = $"https://api4.thetvdb.com/v4/search?query={encodedSeriesName}";
+
+                HttpResponseMessage response = await client.GetAsync(url);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    MessageBox.Show("Series search failed.");
+                    return;
+                }
+
+                string responseString = await response.Content.ReadAsStringAsync();
+
+                using (JsonDocument doc = JsonDocument.Parse(responseString))
+                {
+                    if (!doc.RootElement.TryGetProperty("data", out JsonElement results))
+                    {
+                        MessageBox.Show("No search results returned.");
+                        return;
+                    }
+
+                    seriesResults.Clear();
+                    lstSeriesResults.Items.Clear();
+
+                    selectedSeriesId = 0;
+                    selectedSeriesName = "";
+                    episodeTitles.Clear();
+
+                    foreach (JsonElement item in results.EnumerateArray())
+                    {
+                        string name = GetJsonString(item, "name");
+                        string type = GetJsonString(item, "type");
+                        int id = GetJsonInt(item, "tvdb_id", "id");
+
+                        if (string.IsNullOrWhiteSpace(name) || id == 0)
+                            continue;
+
+                        SeriesSearchResult result = new SeriesSearchResult
+                        {
+                            Id = id,
+                            Name = name,
+                            Type = type
+                        };
+
+                        seriesResults.Add(result);
+                        lstSeriesResults.Items.Add(result);
+                    }
+
+                    if (lstSeriesResults.Items.Count == 0)
+                    {
+                        MessageBox.Show("No usable series results found.");
+                    }
+                }
+            }
+        }
+
+        // ---- TVDB EPISODE FETCH ----
+        private async Task<bool> FetchEpisodesForSelectedSeries()
+        {
+            if (selectedSeriesId == 0)
+            {
+                MessageBox.Show("Please select a series first.");
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(apiToken))
+            {
+                bool authenticated = await AuthenticateTVDB();
+
+                if (!authenticated)
+                    return false;
+            }
+
+            using (HttpClient client = new HttpClient())
+            {
+                client.DefaultRequestHeaders.Authorization =
+                    new AuthenticationHeaderValue("Bearer", apiToken);
+
+                string url = $"https://api4.thetvdb.com/v4/series/{selectedSeriesId}/episodes/default";
+
+                HttpResponseMessage response = await client.GetAsync(url);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    MessageBox.Show("Failed to fetch episode data from TVDB.");
+                    return false;
+                }
+
+                string responseString = await response.Content.ReadAsStringAsync();
+
+                using (JsonDocument doc = JsonDocument.Parse(responseString))
+                {
+                    if (!doc.RootElement.TryGetProperty("data", out JsonElement data))
+                    {
+                        MessageBox.Show("No episode data returned.");
+                        return false;
+                    }
+
+                    JsonElement episodes;
+
+                    if (data.ValueKind == JsonValueKind.Object &&
+                        data.TryGetProperty("episodes", out JsonElement episodeArray))
+                    {
+                        episodes = episodeArray;
+                    }
+                    else if (data.ValueKind == JsonValueKind.Array)
+                    {
+                        episodes = data;
+                    }
+                    else
+                    {
+                        MessageBox.Show("Episode data format was not recognised.");
+                        return false;
+                    }
+
+                    episodeTitles.Clear();
+
+                    foreach (JsonElement episode in episodes.EnumerateArray())
+                    {
+                        int season = GetJsonInt(episode, "seasonNumber", "airedSeason", "season");
+                        int number = GetJsonInt(episode, "number", "airedEpisodeNumber", "episodeNumber");
+                        string title = GetJsonString(episode, "name");
+
+                        if (season == 0 || number == 0 || string.IsNullOrWhiteSpace(title))
+                            continue;
+
+                        string episodeCode = $"S{season:D2}E{number:D2}";
+
+                        if (!episodeTitles.ContainsKey(episodeCode))
+                        {
+                            episodeTitles.Add(episodeCode, title);
+                        }
+                    }
+                }
+            }
+
+            MessageBox.Show($"Loaded {episodeTitles.Count} episode titles for {selectedSeriesName}.");
+
+            return episodeTitles.Count > 0;
+        }
+    }
+}
