@@ -30,7 +30,6 @@
         {
             btnSelectFolder = new Button();
             txtFolderPath = new TextBox();
-            lstPreview = new ListBox();
             btnPreview = new Button();
             btnRename = new Button();
             label1 = new Label();
@@ -61,20 +60,12 @@
             // 
             txtFolderPath.Location = new Point(106, 59);
             txtFolderPath.Name = "txtFolderPath";
-            txtFolderPath.Size = new Size(849, 23);
+            txtFolderPath.Size = new Size(665, 23);
             txtFolderPath.TabIndex = 1;
-            // 
-            // lstPreview
-            // 
-            lstPreview.FormattingEnabled = true;
-            lstPreview.Location = new Point(5, 119);
-            lstPreview.Name = "lstPreview";
-            lstPreview.Size = new Size(950, 94);
-            lstPreview.TabIndex = 2;
             // 
             // btnPreview
             // 
-            btnPreview.Location = new Point(4, 90);
+            btnPreview.Location = new Point(777, 58);
             btnPreview.Name = "btnPreview";
             btnPreview.Size = new Size(75, 23);
             btnPreview.TabIndex = 3;
@@ -84,7 +75,7 @@
             // 
             // btnRename
             // 
-            btnRename.Location = new Point(4, 376);
+            btnRename.Location = new Point(3, 339);
             btnRename.Name = "btnRename";
             btnRename.Size = new Size(95, 23);
             btnRename.TabIndex = 4;
@@ -95,7 +86,7 @@
             // label1
             // 
             label1.AutoSize = true;
-            label1.Location = new Point(4, 220);
+            label1.Location = new Point(4, 374);
             label1.Name = "label1";
             label1.Size = new Size(75, 15);
             label1.TabIndex = 5;
@@ -103,14 +94,14 @@
             // 
             // txtSeriesName
             // 
-            txtSeriesName.Location = new Point(85, 217);
+            txtSeriesName.Location = new Point(85, 371);
             txtSeriesName.Name = "txtSeriesName";
             txtSeriesName.Size = new Size(158, 23);
             txtSeriesName.TabIndex = 6;
             // 
             // btnFetchSeries
             // 
-            btnFetchSeries.Location = new Point(249, 217);
+            btnFetchSeries.Location = new Point(249, 371);
             btnFetchSeries.Name = "btnFetchSeries";
             btnFetchSeries.Size = new Size(124, 23);
             btnFetchSeries.TabIndex = 7;
@@ -121,7 +112,7 @@
             // lstSeriesResults
             // 
             lstSeriesResults.FormattingEnabled = true;
-            lstSeriesResults.Location = new Point(4, 246);
+            lstSeriesResults.Location = new Point(4, 400);
             lstSeriesResults.Name = "lstSeriesResults";
             lstSeriesResults.Size = new Size(951, 124);
             lstSeriesResults.TabIndex = 8;
@@ -173,7 +164,7 @@
             // 
             // btnUndo
             // 
-            btnUndo.Location = new Point(106, 376);
+            btnUndo.Location = new Point(105, 339);
             btnUndo.Name = "btnUndo";
             btnUndo.Size = new Size(115, 23);
             btnUndo.TabIndex = 13;
@@ -187,7 +178,7 @@
             dgvPreview.AllowUserToDeleteRows = false;
             dgvPreview.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             dgvPreview.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
-            dgvPreview.Location = new Point(5, 405);
+            dgvPreview.Location = new Point(3, 88);
             dgvPreview.Name = "dgvPreview";
             dgvPreview.ReadOnly = true;
             dgvPreview.RowHeadersVisible = false;
@@ -198,7 +189,7 @@
             // 
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(956, 646);
+            ClientSize = new Size(961, 531);
             Controls.Add(dgvPreview);
             Controls.Add(btnUndo);
             Controls.Add(btnToggleApiKey);
@@ -211,7 +202,6 @@
             Controls.Add(label1);
             Controls.Add(btnRename);
             Controls.Add(btnPreview);
-            Controls.Add(lstPreview);
             Controls.Add(txtFolderPath);
             Controls.Add(btnSelectFolder);
             Name = "MainForm";
@@ -225,7 +215,6 @@
 
         private Button btnSelectFolder;
         private TextBox txtFolderPath;
-        private ListBox lstPreview;
         private Button btnPreview;
         private Button btnRename;
         private Label label1;
