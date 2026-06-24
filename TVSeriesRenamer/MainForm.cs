@@ -155,6 +155,7 @@ namespace TVSeriesRenamer
             toolTip.SetToolTip(txtApiKey, "TVDB API key");
 
             toolTip.SetToolTip(lstSeriesResults, "Select correct series");
+            toolTip.SetToolTip(chkForceRename, "Override safety checks and rename all files");
         }
 
         private void AddPreviewRow(string status, string originalName, string newNameOrReason)
