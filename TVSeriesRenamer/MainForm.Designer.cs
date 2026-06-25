@@ -2,15 +2,8 @@ namespace TVSeriesRenamer
 {
     partial class MainForm
     {
-        /// <summary>
-        /// Required designer variable.
-        /// </summary>
         private System.ComponentModel.IContainer components = null;
 
-        /// <summary>
-        /// Clean up any resources being used.
-        /// </summary>
-        /// <param name="disposing">true if managed resources should be disposed; otherwise, false.</param>
         protected override void Dispose(bool disposing)
         {
             if (disposing && (components != null))
@@ -22,10 +15,6 @@ namespace TVSeriesRenamer
 
         #region Windows Form Designer generated code
 
-        /// <summary>
-        /// Required method for Designer support - do not modify
-        /// the contents of this method with the code editor.
-        /// </summary>
         private void InitializeComponent()
         {
             groupApi = new GroupBox();
@@ -36,19 +25,20 @@ namespace TVSeriesRenamer
             btnSaveApiKey = new Button();
             txtApiKey = new TextBox();
             labelApiKey = new Label();
-            groupSeries = new GroupBox();
-            lblSelectedSeries = new Label();
-            lstSeriesResults = new ListBox();
-            btnFetchSeries = new Button();
-            txtSeriesName = new TextBox();
-            labelSeriesName = new Label();
             groupFiles = new GroupBox();
+            lblDetectedSeries = new Label();
             lblFileStatus = new Label();
             lstOriginalFiles = new ListBox();
             btnClearFiles = new Button();
             btnRemoveSelected = new Button();
             btnAddFolder = new Button();
             btnAddFiles = new Button();
+            groupSeries = new GroupBox();
+            lblSelectedSeries = new Label();
+            lstSeriesResults = new ListBox();
+            btnFetchSeries = new Button();
+            txtSeriesName = new TextBox();
+            labelSeriesName = new Label();
             groupOutput = new GroupBox();
             btnChooseOutputFolder = new Button();
             txtOutputFolder = new TextBox();
@@ -63,8 +53,8 @@ namespace TVSeriesRenamer
             lstPreviewNew = new ListBox();
             lstPreviewOriginal = new ListBox();
             groupApi.SuspendLayout();
-            groupSeries.SuspendLayout();
             groupFiles.SuspendLayout();
+            groupSeries.SuspendLayout();
             groupOutput.SuspendLayout();
             groupPreview.SuspendLayout();
             SuspendLayout();
@@ -150,6 +140,93 @@ namespace TVSeriesRenamer
             labelApiKey.TabIndex = 0;
             labelApiKey.Text = "API Key:";
             // 
+            // groupFiles
+            // 
+            groupFiles.Controls.Add(lblDetectedSeries);
+            groupFiles.Controls.Add(lblFileStatus);
+            groupFiles.Controls.Add(lstOriginalFiles);
+            groupFiles.Controls.Add(btnClearFiles);
+            groupFiles.Controls.Add(btnRemoveSelected);
+            groupFiles.Controls.Add(btnAddFolder);
+            groupFiles.Controls.Add(btnAddFiles);
+            groupFiles.Location = new Point(8, 84);
+            groupFiles.Name = "groupFiles";
+            groupFiles.Size = new Size(1180, 220);
+            groupFiles.TabIndex = 1;
+            groupFiles.TabStop = false;
+            groupFiles.Text = "Files";
+            // 
+            // lblDetectedSeries
+            // 
+            lblDetectedSeries.AutoSize = true;
+            lblDetectedSeries.ForeColor = Color.DimGray;
+            lblDetectedSeries.Location = new Point(16, 194);
+            lblDetectedSeries.Name = "lblDetectedSeries";
+            lblDetectedSeries.Size = new Size(119, 15);
+            lblDetectedSeries.TabIndex = 6;
+            lblDetectedSeries.Text = "Detected series: None";
+            // 
+            // lblFileStatus
+            // 
+            lblFileStatus.AutoSize = true;
+            lblFileStatus.Location = new Point(16, 174);
+            lblFileStatus.Name = "lblFileStatus";
+            lblFileStatus.Size = new Size(197, 15);
+            lblFileStatus.TabIndex = 5;
+            lblFileStatus.Text = "0 file(s) loaded | 0 selected | 0 matched";
+            // 
+            // lstOriginalFiles
+            // 
+            lstOriginalFiles.FormattingEnabled = true;
+            lstOriginalFiles.HorizontalScrollbar = true;
+            lstOriginalFiles.ItemHeight = 15;
+            lstOriginalFiles.Location = new Point(16, 58);
+            lstOriginalFiles.Name = "lstOriginalFiles";
+            lstOriginalFiles.SelectionMode = SelectionMode.MultiExtended;
+            lstOriginalFiles.Size = new Size(1148, 109);
+            lstOriginalFiles.TabIndex = 4;
+            lstOriginalFiles.SelectedIndexChanged += lstOriginalFiles_SelectedIndexChanged;
+            // 
+            // btnClearFiles
+            // 
+            btnClearFiles.Location = new Point(319, 24);
+            btnClearFiles.Name = "btnClearFiles";
+            btnClearFiles.Size = new Size(90, 25);
+            btnClearFiles.TabIndex = 3;
+            btnClearFiles.Text = "Clear All";
+            btnClearFiles.UseVisualStyleBackColor = true;
+            btnClearFiles.Click += btnClearFiles_Click;
+            // 
+            // btnRemoveSelected
+            // 
+            btnRemoveSelected.Location = new Point(207, 24);
+            btnRemoveSelected.Name = "btnRemoveSelected";
+            btnRemoveSelected.Size = new Size(106, 25);
+            btnRemoveSelected.TabIndex = 2;
+            btnRemoveSelected.Text = "Remove Selected";
+            btnRemoveSelected.UseVisualStyleBackColor = true;
+            btnRemoveSelected.Click += btnRemoveSelected_Click;
+            // 
+            // btnAddFolder
+            // 
+            btnAddFolder.Location = new Point(111, 24);
+            btnAddFolder.Name = "btnAddFolder";
+            btnAddFolder.Size = new Size(90, 25);
+            btnAddFolder.TabIndex = 1;
+            btnAddFolder.Text = "Add Folder";
+            btnAddFolder.UseVisualStyleBackColor = true;
+            btnAddFolder.Click += btnAddFolder_Click;
+            // 
+            // btnAddFiles
+            // 
+            btnAddFiles.Location = new Point(16, 24);
+            btnAddFiles.Name = "btnAddFiles";
+            btnAddFiles.Size = new Size(90, 25);
+            btnAddFiles.TabIndex = 0;
+            btnAddFiles.Text = "Add Files";
+            btnAddFiles.UseVisualStyleBackColor = true;
+            btnAddFiles.Click += btnAddFiles_Click;
+            // 
             // groupSeries
             // 
             groupSeries.Controls.Add(lblSelectedSeries);
@@ -157,10 +234,10 @@ namespace TVSeriesRenamer
             groupSeries.Controls.Add(btnFetchSeries);
             groupSeries.Controls.Add(txtSeriesName);
             groupSeries.Controls.Add(labelSeriesName);
-            groupSeries.Location = new Point(8, 84);
+            groupSeries.Location = new Point(8, 310);
             groupSeries.Name = "groupSeries";
             groupSeries.Size = new Size(1180, 150);
-            groupSeries.TabIndex = 1;
+            groupSeries.TabIndex = 2;
             groupSeries.TabStop = false;
             groupSeries.Text = "Series";
             // 
@@ -210,82 +287,6 @@ namespace TVSeriesRenamer
             labelSeriesName.Size = new Size(75, 15);
             labelSeriesName.TabIndex = 0;
             labelSeriesName.Text = "Series Name:";
-            // 
-            // groupFiles
-            // 
-            groupFiles.Controls.Add(lblFileStatus);
-            groupFiles.Controls.Add(lstOriginalFiles);
-            groupFiles.Controls.Add(btnClearFiles);
-            groupFiles.Controls.Add(btnRemoveSelected);
-            groupFiles.Controls.Add(btnAddFolder);
-            groupFiles.Controls.Add(btnAddFiles);
-            groupFiles.Location = new Point(8, 240);
-            groupFiles.Name = "groupFiles";
-            groupFiles.Size = new Size(1180, 220);
-            groupFiles.TabIndex = 2;
-            groupFiles.TabStop = false;
-            groupFiles.Text = "Files";
-            // 
-            // lblFileStatus
-            // 
-            lblFileStatus.AutoSize = true;
-            lblFileStatus.Location = new Point(16, 194);
-            lblFileStatus.Name = "lblFileStatus";
-            lblFileStatus.Size = new Size(197, 15);
-            lblFileStatus.TabIndex = 5;
-            lblFileStatus.Text = "0 file(s) loaded | 0 selected | 0 matched";
-            // 
-            // lstOriginalFiles
-            // 
-            lstOriginalFiles.FormattingEnabled = true;
-            lstOriginalFiles.HorizontalScrollbar = true;
-            lstOriginalFiles.ItemHeight = 15;
-            lstOriginalFiles.Location = new Point(16, 58);
-            lstOriginalFiles.Name = "lstOriginalFiles";
-            lstOriginalFiles.SelectionMode = SelectionMode.MultiExtended;
-            lstOriginalFiles.Size = new Size(1148, 124);
-            lstOriginalFiles.TabIndex = 4;
-            lstOriginalFiles.SelectedIndexChanged += lstOriginalFiles_SelectedIndexChanged;
-            // 
-            // btnClearFiles
-            // 
-            btnClearFiles.Location = new Point(319, 24);
-            btnClearFiles.Name = "btnClearFiles";
-            btnClearFiles.Size = new Size(90, 25);
-            btnClearFiles.TabIndex = 3;
-            btnClearFiles.Text = "Clear All";
-            btnClearFiles.UseVisualStyleBackColor = true;
-            btnClearFiles.Click += btnClearFiles_Click;
-            // 
-            // btnRemoveSelected
-            // 
-            btnRemoveSelected.Location = new Point(207, 24);
-            btnRemoveSelected.Name = "btnRemoveSelected";
-            btnRemoveSelected.Size = new Size(106, 25);
-            btnRemoveSelected.TabIndex = 2;
-            btnRemoveSelected.Text = "Remove Selected";
-            btnRemoveSelected.UseVisualStyleBackColor = true;
-            btnRemoveSelected.Click += btnRemoveSelected_Click;
-            // 
-            // btnAddFolder
-            // 
-            btnAddFolder.Location = new Point(111, 24);
-            btnAddFolder.Name = "btnAddFolder";
-            btnAddFolder.Size = new Size(90, 25);
-            btnAddFolder.TabIndex = 1;
-            btnAddFolder.Text = "Add Folder";
-            btnAddFolder.UseVisualStyleBackColor = true;
-            btnAddFolder.Click += btnAddFolder_Click;
-            // 
-            // btnAddFiles
-            // 
-            btnAddFiles.Location = new Point(16, 24);
-            btnAddFiles.Name = "btnAddFiles";
-            btnAddFiles.Size = new Size(90, 25);
-            btnAddFiles.TabIndex = 0;
-            btnAddFiles.Text = "Add Files";
-            btnAddFiles.UseVisualStyleBackColor = true;
-            btnAddFiles.Click += btnAddFiles_Click;
             // 
             // groupOutput
             // 
@@ -428,8 +429,8 @@ namespace TVSeriesRenamer
             ClientSize = new Size(1196, 841);
             Controls.Add(groupPreview);
             Controls.Add(groupOutput);
-            Controls.Add(groupFiles);
             Controls.Add(groupSeries);
+            Controls.Add(groupFiles);
             Controls.Add(groupApi);
             MinimumSize = new Size(1212, 880);
             Name = "MainForm";
@@ -437,10 +438,10 @@ namespace TVSeriesRenamer
             Text = "TV Series Renamer v1.3";
             groupApi.ResumeLayout(false);
             groupApi.PerformLayout();
-            groupSeries.ResumeLayout(false);
-            groupSeries.PerformLayout();
             groupFiles.ResumeLayout(false);
             groupFiles.PerformLayout();
+            groupSeries.ResumeLayout(false);
+            groupSeries.PerformLayout();
             groupOutput.ResumeLayout(false);
             groupOutput.PerformLayout();
             groupPreview.ResumeLayout(false);
@@ -458,19 +459,20 @@ namespace TVSeriesRenamer
         private Button btnSaveApiKey;
         private TextBox txtApiKey;
         private Label labelApiKey;
-        private GroupBox groupSeries;
-        private Label lblSelectedSeries;
-        private ListBox lstSeriesResults;
-        private Button btnFetchSeries;
-        private TextBox txtSeriesName;
-        private Label labelSeriesName;
         private GroupBox groupFiles;
+        private Label lblDetectedSeries;
         private Label lblFileStatus;
         private ListBox lstOriginalFiles;
         private Button btnClearFiles;
         private Button btnRemoveSelected;
         private Button btnAddFolder;
         private Button btnAddFiles;
+        private GroupBox groupSeries;
+        private Label lblSelectedSeries;
+        private ListBox lstSeriesResults;
+        private Button btnFetchSeries;
+        private TextBox txtSeriesName;
+        private Label labelSeriesName;
         private GroupBox groupOutput;
         private Button btnChooseOutputFolder;
         private TextBox txtOutputFolder;
