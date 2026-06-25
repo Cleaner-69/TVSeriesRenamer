@@ -46,6 +46,7 @@
             chkForceRename = new CheckBox();
             lblVersion = new Label();
             btnApiHelp = new Button();
+            btnOpenLog = new Button();
             ((System.ComponentModel.ISupportInitialize)dgvPreview).BeginInit();
             SuspendLayout();
             // 
@@ -217,11 +218,21 @@
             btnApiHelp.UseVisualStyleBackColor = true;
             btnApiHelp.Click += btnApiHelp_Click;
             // 
+            // btnOpenLog
+            // 
+            btnOpenLog.Location = new Point(466, 339);
+            btnOpenLog.Name = "btnOpenLog";
+            btnOpenLog.Size = new Size(75, 23);
+            btnOpenLog.TabIndex = 18;
+            btnOpenLog.Text = "Log File";
+            btnOpenLog.UseVisualStyleBackColor = true;
+            // 
             // MainForm
             // 
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(961, 531);
+            Controls.Add(btnOpenLog);
             Controls.Add(btnApiHelp);
             Controls.Add(lblVersion);
             Controls.Add(chkForceRename);
@@ -266,5 +277,6 @@
         private CheckBox chkForceRename;
         private Label lblVersion;
         private Button btnApiHelp;
+        private Button btnOpenLog;
     }
 }

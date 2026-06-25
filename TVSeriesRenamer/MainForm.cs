@@ -24,7 +24,7 @@ namespace TVSeriesRenamer
         private const string GitHubUserAgent = "TVSeriesRenamer";
 
         // ---- SUPPORTED FILE TYPES ----
-        // Phase 1 hardening: restrict rename preview and rename execution to common video file types.
+        // Phase 1 hardening: restrict preview and rename execution to common video file types.
         // This reduces noise and lowers the risk of accidentally processing unrelated files.
         private static readonly HashSet<string> SupportedVideoExtensions =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -59,6 +59,13 @@ namespace TVSeriesRenamer
 
         // ---- RENAME PREVIEW STATE ----
         private List<RenamePreviewItem> previewItems = new List<RenamePreviewItem>();
+
+        // ---- PREVIEW CONTEXT STATE ----
+        // Important:
+        // previewItems only contains actionable rename rows.
+        // A preview can still be valid even when all rows are SKIP / NO MATCH / NO TVDB TITLE.
+        // This flag allows Fetch Series Info to remain available after a valid preview cycle.
+        private bool hasPreviewFileContext = false;
 
         // ---- UNDO STATE ----
         private Stack<List<RenamePreviewItem>> undoStack = new Stack<List<RenamePreviewItem>>();
@@ -95,8 +102,20 @@ namespace TVSeriesRenamer
 
             SetupToolTips();
 
+            // Deterministic button-state control.
+            // This prevents Fetch Series Info from getting stuck disabled across repeat cycles.
+            txtSeriesName.TextChanged -= txtSeriesName_TextChanged;
+            txtSeriesName.TextChanged += txtSeriesName_TextChanged;
+
+            // Safe event binding for the Log button added in the Designer.
+            // Remove first to avoid duplicate firing if Designer wiring is later added.
+            btnOpenLog.Click -= btnOpenLog_Click;
+            btnOpenLog.Click += btnOpenLog_Click;
+
             Text = $"TV Series Renamer {CurrentVersion}";
             _ = CheckForUpdatesAsync();
+
+            UpdateActionButtons();
         }
 
         // ---- MODELS ----
@@ -172,14 +191,16 @@ namespace TVSeriesRenamer
             toolTip.SetToolTip(btnPreview, "Generate preview for supported video files");
             toolTip.SetToolTip(btnRename, "Apply rename");
             toolTip.SetToolTip(btnUndo, "Undo last rename");
-            toolTip.SetToolTip(btnFetchSeries, "Fetch series from TVDB");
+            toolTip.SetToolTip(btnFetchSeries, "Fetch series and episode information from TVDB");
             toolTip.SetToolTip(btnSaveApiKey, "Save the TVDB API key");
             toolTip.SetToolTip(btnToggleApiKey, "Show or hide the TVDB API key");
+            toolTip.SetToolTip(btnApiHelp, "Open TVDB API information page to get or manage your API key");
+            toolTip.SetToolTip(btnOpenLog, "Open the rename log file");
             toolTip.SetToolTip(txtFolderPath, "Folder path");
-            toolTip.SetToolTip(txtSeriesName, "Series to search");
+            toolTip.SetToolTip(txtSeriesName, "Series name to search on TVDB");
             toolTip.SetToolTip(txtApiKey, "TVDB API key");
-            toolTip.SetToolTip(lstSeriesResults, "Select correct series");
-            toolTip.SetToolTip(chkForceRename, "Override safety checks and rename all files in preview");
+            toolTip.SetToolTip(lstSeriesResults, "Select the correct series result");
+            toolTip.SetToolTip(chkForceRename, "Override wrong-series safety checks for the current preview");
         }
 
         private void AddPreviewRow(string status, string originalName, string newNameOrReason)
@@ -219,14 +240,14 @@ namespace TVSeriesRenamer
         {
             dgvPreview.Rows.Clear();
             previewItems.Clear();
-
-            btnRename.Enabled = false;
-            btnFetchSeries.Enabled = false;
+            hasPreviewFileContext = false;
 
             if (clearEpisodeTitles)
             {
                 episodeTitles.Clear();
             }
+
+            UpdateActionButtons();
         }
 
         private void ResetSeriesSelectionState()
@@ -236,6 +257,21 @@ namespace TVSeriesRenamer
             seriesResults.Clear();
             lstSeriesResults.Items.Clear();
             episodeTitles.Clear();
+
+            UpdateActionButtons();
+        }
+
+        private void UpdateActionButtons()
+        {
+            bool hasActionableRenameItems = previewItems.Count > 0;
+            bool hasSeriesName = !string.IsNullOrWhiteSpace(txtSeriesName.Text);
+
+            // Rename requires actual actionable rename items.
+            btnRename.Enabled = hasActionableRenameItems;
+
+            // Fetch Series Info requires a valid preview context, not necessarily actionable rename items.
+            // This fixes the repeat-cycle issue where all preview rows were SKIP and Fetch stayed disabled.
+            btnFetchSeries.Enabled = hasPreviewFileContext && hasSeriesName;
         }
 
         // ---- FILE FILTERING ----
@@ -283,6 +319,11 @@ namespace TVSeriesRenamer
         private void btnPreview_Click(object sender, EventArgs e)
         {
             BuildBasicPreview();
+        }
+
+        private void txtSeriesName_TextChanged(object sender, EventArgs e)
+        {
+            UpdateActionButtons();
         }
 
         private void btnRename_Click(object sender, EventArgs e)
@@ -363,7 +404,6 @@ namespace TVSeriesRenamer
                 errorCount > 0 ? MessageBoxIcon.Warning : MessageBoxIcon.Information
             );
 
-            btnRename.Enabled = false;
             RefreshPreviewAfterOperation();
         }
 
@@ -438,9 +478,24 @@ namespace TVSeriesRenamer
 
         private async void btnFetchSeries_Click(object sender, EventArgs e)
         {
+            if (!Directory.Exists(txtFolderPath.Text))
+            {
+                MessageBox.Show("Please select a valid folder first.");
+                ResetPreviewState(clearEpisodeTitles: true);
+                return;
+            }
+
+            if (!hasPreviewFileContext)
+            {
+                MessageBox.Show("Please run Preview before fetching series information.");
+                UpdateActionButtons();
+                return;
+            }
+
             if (string.IsNullOrWhiteSpace(txtSeriesName.Text))
             {
                 MessageBox.Show("Please enter a series name first.");
+                UpdateActionButtons();
                 return;
             }
 
@@ -450,6 +505,7 @@ namespace TVSeriesRenamer
                 return;
 
             await SearchSeries(txtSeriesName.Text);
+            UpdateActionButtons();
         }
 
         private void btnSaveApiKey_Click(object sender, EventArgs e)
@@ -490,7 +546,52 @@ namespace TVSeriesRenamer
                 {
                     BuildPreviewWithEpisodeTitles();
                 }
+
+                UpdateActionButtons();
             }
+        }
+
+        private void btnOpenLog_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                Directory.CreateDirectory(settingsDirectory);
+
+                if (!File.Exists(LogFilePath))
+                {
+                    MessageBox.Show(
+                        "The rename log file does not exist yet.\n\nA log file will be created after the first rename or undo action.",
+                        "Log File Not Found",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information
+                    );
+                    return;
+                }
+
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = LogFilePath,
+                    UseShellExecute = true
+                });
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    $"Could not open the log file.\n\n{ex.Message}",
+                    "Open Log Failed",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error
+                );
+            }
+        }
+
+        private void btnApiHelp_Click(object sender, EventArgs e)
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "https://thetvdb.com/api-information",
+                UseShellExecute = true
+            });
         }
 
         // ---- COMPATIBILITY WRAPPERS FOR DESIGNER AUTO-NAMING ----
@@ -533,6 +634,16 @@ namespace TVSeriesRenamer
         private void lstSeriesResults_SelectedIndexChanged_1(object sender, EventArgs e)
         {
             lstSeriesResults_SelectedIndexChanged(sender, e);
+        }
+
+        private void btnApiHelp_Click_1(object sender, EventArgs e)
+        {
+            btnApiHelp_Click(sender, e);
+        }
+
+        private void btnOpenLog_Click_1(object sender, EventArgs e)
+        {
+            btnOpenLog_Click(sender, e);
         }
 
         // ---- SETTINGS LOAD / SAVE ----
@@ -588,6 +699,8 @@ namespace TVSeriesRenamer
             {
                 BuildBasicPreview();
             }
+
+            UpdateActionButtons();
         }
 
         // ---- BASIC PREVIEW LOGIC ----
@@ -599,6 +712,7 @@ namespace TVSeriesRenamer
             if (!Directory.Exists(txtFolderPath.Text))
             {
                 MessageBox.Show("Please select a valid folder first.");
+                UpdateActionButtons();
                 return;
             }
 
@@ -611,8 +725,13 @@ namespace TVSeriesRenamer
                     "No supported video files found",
                     $"Supported file types: {GetSupportedExtensionsText()}"
                 );
+
+                hasPreviewFileContext = false;
+                UpdateActionButtons();
                 return;
             }
+
+            hasPreviewFileContext = true;
 
             foreach (string file in files)
             {
@@ -643,8 +762,7 @@ namespace TVSeriesRenamer
                 AddPreviewRow("OK", originalName, newName);
             }
 
-            btnRename.Enabled = previewItems.Count > 0;
-            btnFetchSeries.Enabled = previewItems.Count > 0;
+            UpdateActionButtons();
         }
 
         // ---- ENRICHED PREVIEW USING TVDB EPISODE TITLES ----
@@ -656,6 +774,7 @@ namespace TVSeriesRenamer
             if (!Directory.Exists(txtFolderPath.Text))
             {
                 MessageBox.Show("Please select a valid folder first.");
+                UpdateActionButtons();
                 return;
             }
 
@@ -668,8 +787,13 @@ namespace TVSeriesRenamer
                     "No supported video files found",
                     $"Supported file types: {GetSupportedExtensionsText()}"
                 );
+
+                hasPreviewFileContext = false;
+                UpdateActionButtons();
                 return;
             }
+
+            hasPreviewFileContext = true;
 
             foreach (string file in files)
             {
@@ -716,7 +840,7 @@ namespace TVSeriesRenamer
                 AddPreviewRow("OK", originalName, newName);
             }
 
-            btnRename.Enabled = previewItems.Count > 0;
+            UpdateActionButtons();
         }
 
         // ---- WRONG SERIES DETECTION ----
@@ -1137,15 +1261,6 @@ namespace TVSeriesRenamer
 
             MessageBox.Show($"Loaded {episodeTitles.Count} episode titles for {selectedSeriesName}.");
             return episodeTitles.Count > 0;
-        }
-
-        private void btnApiHelp_Click(object sender, EventArgs e)
-        {
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = "https://thetvdb.com/api-information",
-                UseShellExecute = true
-            });
         }
     }
 }
