@@ -206,7 +206,7 @@
             lblVersion.Name = "lblVersion";
             lblVersion.Size = new Size(63, 15);
             lblVersion.TabIndex = 16;
-            lblVersion.Text = "Version 1.1";
+            lblVersion.Text = "Version 1.2";
             // 
             // btnApiHelp
             // 
@@ -251,7 +251,7 @@
             Controls.Add(txtFolderPath);
             Controls.Add(btnSelectFolder);
             Name = "MainForm";
-            Text = "TV Series Renamer v1.1";
+            Text = "TV Series Renamer v1.2";
             ((System.ComponentModel.ISupportInitialize)dgvPreview).EndInit();
             ResumeLayout(false);
             PerformLayout();

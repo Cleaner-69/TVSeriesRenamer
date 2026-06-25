@@ -19,7 +19,7 @@ namespace TVSeriesRenamer
         private ToolTip toolTip = new ToolTip();
 
         // ---- APPLICATION VERSION / UPDATE CHECK ----
-        private const string CurrentVersion = "v1.1";
+        private const string CurrentVersion = "v1.2";
         private const string LatestReleaseApiUrl = "https://api.github.com/repos/Cleaner-69/TVSeriesRenamer/releases/latest";
         private const string GitHubUserAgent = "TVSeriesRenamer";
 
