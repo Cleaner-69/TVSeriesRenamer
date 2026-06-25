@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
@@ -9,7 +11,6 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using System.Diagnostics;
 
 namespace TVSeriesRenamer
 {
@@ -21,6 +22,20 @@ namespace TVSeriesRenamer
         private const string CurrentVersion = "v1.1";
         private const string LatestReleaseApiUrl = "https://api.github.com/repos/Cleaner-69/TVSeriesRenamer/releases/latest";
         private const string GitHubUserAgent = "TVSeriesRenamer";
+
+        // ---- SUPPORTED FILE TYPES ----
+        // Phase 1 hardening: restrict rename preview and rename execution to common video file types.
+        // This reduces noise and lowers the risk of accidentally processing unrelated files.
+        private static readonly HashSet<string> SupportedVideoExtensions =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ".mkv",
+                ".mp4",
+                ".avi",
+                ".mov",
+                ".wmv",
+                ".m4v"
+            };
 
         // ---- TVDB CONFIG ----
         private string apiKey = "";
@@ -79,12 +94,13 @@ namespace TVSeriesRenamer
             toolTip.ShowAlways = true;
 
             SetupToolTips();
-            
+
             Text = $"TV Series Renamer {CurrentVersion}";
             _ = CheckForUpdatesAsync();
         }
 
         // ---- MODELS ----
+
         public class RenamePreviewItem
         {
             public string OriginalPath { get; set; } = "";
@@ -112,6 +128,7 @@ namespace TVSeriesRenamer
         }
 
         // ---- GRID PREVIEW SETUP ----
+
         private void SetupPreviewGrid()
         {
             dgvPreview.Rows.Clear();
@@ -151,20 +168,18 @@ namespace TVSeriesRenamer
 
         private void SetupToolTips()
         {
-            toolTip.SetToolTip(btnSelectFolder, "Select folder with files");
-            toolTip.SetToolTip(btnPreview, "Generate preview");
+            toolTip.SetToolTip(btnSelectFolder, "Select folder with video files");
+            toolTip.SetToolTip(btnPreview, "Generate preview for supported video files");
             toolTip.SetToolTip(btnRename, "Apply rename");
             toolTip.SetToolTip(btnUndo, "Undo last rename");
             toolTip.SetToolTip(btnFetchSeries, "Fetch series from TVDB");
             toolTip.SetToolTip(btnSaveApiKey, "Save the TVDB API key");
             toolTip.SetToolTip(btnToggleApiKey, "Show or hide the TVDB API key");
-
             toolTip.SetToolTip(txtFolderPath, "Folder path");
             toolTip.SetToolTip(txtSeriesName, "Series to search");
             toolTip.SetToolTip(txtApiKey, "TVDB API key");
-
             toolTip.SetToolTip(lstSeriesResults, "Select correct series");
-            toolTip.SetToolTip(chkForceRename, "Override safety checks and rename all files");
+            toolTip.SetToolTip(chkForceRename, "Override safety checks and rename all files in preview");
         }
 
         private void AddPreviewRow(string status, string originalName, string newNameOrReason)
@@ -177,23 +192,18 @@ namespace TVSeriesRenamer
                 case "OK":
                     row.DefaultCellStyle.BackColor = Color.LightGreen;
                     break;
-
                 case "SKIP":
                     row.DefaultCellStyle.BackColor = Color.LightGray;
                     break;
-
                 case "NO MATCH":
                     row.DefaultCellStyle.BackColor = Color.Khaki;
                     break;
-
                 case "NO TVDB TITLE":
                     row.DefaultCellStyle.BackColor = Color.LightYellow;
                     break;
-
                 case "WRONG SERIES":
                     row.DefaultCellStyle.BackColor = Color.Orange;
                     break;
-
                 case "ERROR":
                     row.DefaultCellStyle.BackColor = Color.LightCoral;
                     break;
@@ -203,7 +213,59 @@ namespace TVSeriesRenamer
             row.Cells["New"].ToolTipText = newNameOrReason;
         }
 
+        // ---- STATE MANAGEMENT ----
+
+        private void ResetPreviewState(bool clearEpisodeTitles)
+        {
+            dgvPreview.Rows.Clear();
+            previewItems.Clear();
+
+            btnRename.Enabled = false;
+            btnFetchSeries.Enabled = false;
+
+            if (clearEpisodeTitles)
+            {
+                episodeTitles.Clear();
+            }
+        }
+
+        private void ResetSeriesSelectionState()
+        {
+            selectedSeriesId = 0;
+            selectedSeriesName = "";
+            seriesResults.Clear();
+            lstSeriesResults.Items.Clear();
+            episodeTitles.Clear();
+        }
+
+        // ---- FILE FILTERING ----
+
+        private bool IsSupportedVideoFile(string filePath)
+        {
+            string extension = Path.GetExtension(filePath);
+            return SupportedVideoExtensions.Contains(extension);
+        }
+
+        private string[] GetSupportedVideoFilesFromSelectedFolder()
+        {
+            if (!Directory.Exists(txtFolderPath.Text))
+            {
+                return Array.Empty<string>();
+            }
+
+            return Directory
+                .GetFiles(txtFolderPath.Text)
+                .Where(IsSupportedVideoFile)
+                .ToArray();
+        }
+
+        private string GetSupportedExtensionsText()
+        {
+            return string.Join(", ", SupportedVideoExtensions.OrderBy(extension => extension));
+        }
+
         // ---- UI EVENTS ----
+
         private void btnSelectFolder_Click(object sender, EventArgs e)
         {
             using (FolderBrowserDialog dialog = new FolderBrowserDialog())
@@ -211,11 +273,9 @@ namespace TVSeriesRenamer
                 if (dialog.ShowDialog() == DialogResult.OK)
                 {
                     txtFolderPath.Text = dialog.SelectedPath;
-                    previewItems.Clear();
-                    episodeTitles.Clear();
-                    dgvPreview.Rows.Clear();
-                    btnRename.Enabled = false;
-                    btnFetchSeries.Enabled = false;
+
+                    ResetPreviewState(clearEpisodeTitles: true);
+                    ResetSeriesSelectionState();
                 }
             }
         }
@@ -228,6 +288,9 @@ namespace TVSeriesRenamer
         private void btnRename_Click(object sender, EventArgs e)
         {
             int successCount = 0;
+            int skippedCount = 0;
+            int errorCount = 0;
+
             List<RenamePreviewItem> successfulRenames = new List<RenamePreviewItem>();
             List<string> logEntries = new List<string>();
 
@@ -239,17 +302,27 @@ namespace TVSeriesRenamer
                 {
                     if (!File.Exists(item.OriginalPath))
                     {
+                        skippedCount++;
                         logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | SKIP | Source not found | {item.OriginalPath}");
+                        continue;
+                    }
+
+                    if (!IsSupportedVideoFile(item.OriginalPath))
+                    {
+                        skippedCount++;
+                        logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | SKIP | Unsupported file type | {item.OriginalPath}");
                         continue;
                     }
 
                     if (File.Exists(item.NewPath))
                     {
+                        skippedCount++;
                         logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | SKIP | Target already exists | {item.NewPath}");
                         continue;
                     }
 
                     File.Move(item.OriginalPath, item.NewPath);
+
                     successCount++;
 
                     successfulRenames.Add(new RenamePreviewItem
@@ -263,6 +336,7 @@ namespace TVSeriesRenamer
                 }
                 catch (Exception ex)
                 {
+                    errorCount++;
                     logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | ERROR | {item.OriginalPath} -> {item.NewPath} | {ex.Message}");
                 }
             }
@@ -278,7 +352,16 @@ namespace TVSeriesRenamer
                 btnUndo.Enabled = true;
             }
 
-            MessageBox.Show($"Rename completed. {successCount} files renamed.");
+            MessageBox.Show(
+                $"Rename completed.\n\n" +
+                $"Renamed: {successCount}\n" +
+                $"Skipped: {skippedCount}\n" +
+                $"Errors: {errorCount}\n\n" +
+                $"Log file:\n{LogFilePath}",
+                "Rename Result",
+                MessageBoxButtons.OK,
+                errorCount > 0 ? MessageBoxIcon.Warning : MessageBoxIcon.Information
+            );
 
             btnRename.Enabled = false;
             RefreshPreviewAfterOperation();
@@ -296,6 +379,9 @@ namespace TVSeriesRenamer
             List<RenamePreviewItem> lastOperation = undoStack.Pop();
 
             int successCount = 0;
+            int skippedCount = 0;
+            int errorCount = 0;
+
             List<string> logEntries = new List<string>();
 
             Directory.CreateDirectory(settingsDirectory);
@@ -306,23 +392,26 @@ namespace TVSeriesRenamer
                 {
                     if (!File.Exists(item.NewPath))
                     {
+                        skippedCount++;
                         logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | UNDO SKIPPED | Source not found | {item.NewPath}");
                         continue;
                     }
 
                     if (File.Exists(item.OriginalPath))
                     {
+                        skippedCount++;
                         logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | UNDO SKIPPED | Target already exists | {item.OriginalPath}");
                         continue;
                     }
 
                     File.Move(item.NewPath, item.OriginalPath);
-                    successCount++;
 
+                    successCount++;
                     logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | UNDO | {item.NewPath} -> {item.OriginalPath}");
                 }
                 catch (Exception ex)
                 {
+                    errorCount++;
                     logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | UNDO ERROR | {item.NewPath} -> {item.OriginalPath} | {ex.Message}");
                 }
             }
@@ -332,7 +421,16 @@ namespace TVSeriesRenamer
                 File.AppendAllLines(LogFilePath, logEntries);
             }
 
-            MessageBox.Show($"Undo completed. {successCount} files restored.");
+            MessageBox.Show(
+                $"Undo completed.\n\n" +
+                $"Restored: {successCount}\n" +
+                $"Skipped: {skippedCount}\n" +
+                $"Errors: {errorCount}\n\n" +
+                $"Log file:\n{LogFilePath}",
+                "Undo Result",
+                MessageBoxButtons.OK,
+                errorCount > 0 ? MessageBoxIcon.Warning : MessageBoxIcon.Information
+            );
 
             btnUndo.Enabled = undoStack.Count > 0;
             RefreshPreviewAfterOperation();
@@ -396,6 +494,7 @@ namespace TVSeriesRenamer
         }
 
         // ---- COMPATIBILITY WRAPPERS FOR DESIGNER AUTO-NAMING ----
+
         private void btnSelectFolder_Click_1(object sender, EventArgs e)
         {
             btnSelectFolder_Click(sender, e);
@@ -437,6 +536,7 @@ namespace TVSeriesRenamer
         }
 
         // ---- SETTINGS LOAD / SAVE ----
+
         private void SaveApiKey()
         {
             Directory.CreateDirectory(settingsDirectory);
@@ -477,6 +577,7 @@ namespace TVSeriesRenamer
         }
 
         // ---- PREVIEW REFRESH ----
+
         private void RefreshPreviewAfterOperation()
         {
             if (episodeTitles.Count > 0 && selectedSeriesId != 0)
@@ -490,15 +591,28 @@ namespace TVSeriesRenamer
         }
 
         // ---- BASIC PREVIEW LOGIC ----
+
         private void BuildBasicPreview()
         {
-            dgvPreview.Rows.Clear();
-            previewItems.Clear();
+            ResetPreviewState(clearEpisodeTitles: false);
 
             if (!Directory.Exists(txtFolderPath.Text))
+            {
+                MessageBox.Show("Please select a valid folder first.");
                 return;
+            }
 
-            string[] files = Directory.GetFiles(txtFolderPath.Text);
+            string[] files = GetSupportedVideoFilesFromSelectedFolder();
+
+            if (files.Length == 0)
+            {
+                AddPreviewRow(
+                    "SKIP",
+                    "No supported video files found",
+                    $"Supported file types: {GetSupportedExtensionsText()}"
+                );
+                return;
+            }
 
             foreach (string file in files)
             {
@@ -534,15 +648,28 @@ namespace TVSeriesRenamer
         }
 
         // ---- ENRICHED PREVIEW USING TVDB EPISODE TITLES ----
+
         private void BuildPreviewWithEpisodeTitles()
         {
-            dgvPreview.Rows.Clear();
-            previewItems.Clear();
+            ResetPreviewState(clearEpisodeTitles: false);
 
             if (!Directory.Exists(txtFolderPath.Text))
+            {
+                MessageBox.Show("Please select a valid folder first.");
                 return;
+            }
 
-            string[] files = Directory.GetFiles(txtFolderPath.Text);
+            string[] files = GetSupportedVideoFilesFromSelectedFolder();
+
+            if (files.Length == 0)
+            {
+                AddPreviewRow(
+                    "SKIP",
+                    "No supported video files found",
+                    $"Supported file types: {GetSupportedExtensionsText()}"
+                );
+                return;
+            }
 
             foreach (string file in files)
             {
@@ -593,6 +720,7 @@ namespace TVSeriesRenamer
         }
 
         // ---- WRONG SERIES DETECTION ----
+
         private bool IsLikelyWrongSeries(string fileName, string selectedSeriesName)
         {
             if (string.IsNullOrWhiteSpace(fileName) || string.IsNullOrWhiteSpace(selectedSeriesName))
@@ -652,6 +780,7 @@ namespace TVSeriesRenamer
         }
 
         // ---- RENAME LOGIC ----
+
         private string? GenerateNewName(string fileName)
         {
             if (TryExtractEpisodeCode(fileName, out int seasonNumber, out int episodeNumber, out string episodeCode))
@@ -679,7 +808,6 @@ namespace TVSeriesRenamer
 
             seasonNumber = int.Parse(match.Groups[1].Value);
             episodeNumber = int.Parse(match.Groups[2].Value);
-
             episodeCode = $"S{seasonNumber:D2}E{episodeNumber:D2}";
 
             return true;
@@ -696,6 +824,7 @@ namespace TVSeriesRenamer
         }
 
         // ---- JSON HELPERS ----
+
         private string GetJsonString(JsonElement element, string propertyName)
         {
             if (element.TryGetProperty(propertyName, out JsonElement property))
@@ -728,6 +857,7 @@ namespace TVSeriesRenamer
         }
 
         // ---- GITHUB UPDATE CHECK ----
+
         private async Task CheckForUpdatesAsync()
         {
             try
@@ -781,6 +911,7 @@ namespace TVSeriesRenamer
                 // Silent failure is intentional.
             }
         }
+
         private bool IsNewerVersion(string latestVersionText, string currentVersionText)
         {
             Version? latestVersion = ParseVersionTag(latestVersionText);
@@ -816,6 +947,7 @@ namespace TVSeriesRenamer
         }
 
         // ---- TVDB AUTHENTICATION ----
+
         private async Task<bool> AuthenticateTVDB()
         {
             if (string.IsNullOrWhiteSpace(apiKey))
@@ -859,6 +991,7 @@ namespace TVSeriesRenamer
         }
 
         // ---- TVDB SERIES SEARCH ----
+
         private async Task SearchSeries(string seriesName)
         {
             using (HttpClient client = new HttpClient())
@@ -922,6 +1055,7 @@ namespace TVSeriesRenamer
         }
 
         // ---- TVDB EPISODE FETCH ----
+
         private async Task<bool> FetchEpisodesForSelectedSeries()
         {
             if (selectedSeriesId == 0)
@@ -1002,55 +1136,12 @@ namespace TVSeriesRenamer
             }
 
             MessageBox.Show($"Loaded {episodeTitles.Count} episode titles for {selectedSeriesName}.");
-
             return episodeTitles.Count > 0;
         }
-        private async Task CheckForUpdates()
-        {
-            try
-            {
-                using (HttpClient client = new HttpClient())
-                {
-                    client.DefaultRequestHeaders.Add("User-Agent", "TVSeriesRenamer");
 
-                    string url = "https://api.github.com/repos/Cleaner-69/TVSeriesRenamer/releases/latest";
-                    string response = await client.GetStringAsync(url);
-
-                    using (JsonDocument doc = JsonDocument.Parse(response))
-                    {
-                        string latestVersion = doc.RootElement.GetProperty("tag_name").GetString() ?? "";
-                        string currentVersion = "v1.0"; // 🔧 update manually per version
-
-                        if (!string.Equals(latestVersion, currentVersion, StringComparison.OrdinalIgnoreCase))
-                        {
-                            var result = MessageBox.Show(
-                                $"A new version ({latestVersion}) is available.\n\nDo you want to download it?",
-                                "Update Available",
-                                MessageBoxButtons.YesNo,
-                                MessageBoxIcon.Information
-                            );
-
-                            if (result == DialogResult.Yes)
-                            {
-                                string downloadUrl = doc.RootElement.GetProperty("html_url").GetString() ?? "";
-                                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                                {
-                                    FileName = downloadUrl,
-                                    UseShellExecute = true
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-            catch
-            {
-                // Silent fail — do NOT break app if update check fails
-            }
-        }
         private void btnApiHelp_Click(object sender, EventArgs e)
         {
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            Process.Start(new ProcessStartInfo
             {
                 FileName = "https://thetvdb.com/api-information",
                 UseShellExecute = true
