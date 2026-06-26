@@ -16,6 +16,14 @@ namespace TVSeriesRenamer
 {
     public partial class MainForm : Form
     {
+        private enum OverwriteDecision
+        {
+            Ask,
+            YesToAll,
+            NoToAll,
+            Cancel
+        }
+
         private readonly ToolTip toolTip = new ToolTip();
 
         private const string CurrentVersion = "v1.3";
@@ -748,7 +756,12 @@ namespace TVSeriesRenamer
                 RenamePreviewItem previewItem = BuildPreviewItem(queueItem.FilePath);
                 previewItems.Add(previewItem);
                 lstPreviewOriginal.Items.Add(Path.GetFileName(queueItem.FilePath));
-                lstPreviewNew.Items.Add(previewItem.Status == "OK" ? Path.GetFileName(previewItem.NewPath) : $"{previewItem.Status}: {previewItem.Message}");
+
+                lstPreviewNew.Items.Add(
+                    previewItem.Status == "OK"
+                        ? $"OK | {Path.GetFileName(previewItem.NewPath)}"
+                        : $"{previewItem.Status} | {previewItem.Message}"
+                );
             }
 
             UpdateActionButtons();
