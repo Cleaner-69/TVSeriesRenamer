@@ -31,6 +31,7 @@ namespace TVSeriesRenamer
         private string apiToken = "";
         private bool isApiKeyVisible = false;
         private bool suppressSeriesNameTextChanged = false;
+        private bool suppressFileSelectionChanged = false;
 
         private readonly string settingsDirectory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -261,6 +262,75 @@ namespace TVSeriesRenamer
         {
             return lstOriginalFiles.SelectedItems.OfType<FileQueueItem>().ToList();
         }
+        private List<FileQueueItem> GetFilesMatchingSeriesName(string seriesName)
+        {
+            List<FileQueueItem> matchingFiles = new List<FileQueueItem>();
+
+            if (string.IsNullOrWhiteSpace(seriesName))
+                return matchingFiles;
+
+            string normalisedSeriesName = NormaliseSeriesName(seriesName);
+            if (string.IsNullOrWhiteSpace(normalisedSeriesName))
+                return matchingFiles;
+
+            foreach (FileQueueItem queueItem in loadedFiles)
+            {
+                string candidateSeriesName = ExtractSeriesSearchCandidate(queueItem.FilePath);
+                string normalisedCandidateSeriesName = NormaliseSeriesName(candidateSeriesName);
+
+                if (string.IsNullOrWhiteSpace(normalisedCandidateSeriesName))
+                    continue;
+
+                bool isMatch = normalisedCandidateSeriesName.Contains(normalisedSeriesName, StringComparison.OrdinalIgnoreCase)
+                    || normalisedSeriesName.Contains(normalisedCandidateSeriesName, StringComparison.OrdinalIgnoreCase);
+
+                if (isMatch)
+                    matchingFiles.Add(queueItem);
+            }
+
+            return matchingFiles;
+        }
+
+        private int SelectFilesMatchingSeriesName(string seriesName)
+        {
+            List<FileQueueItem> matchingFiles = GetFilesMatchingSeriesName(seriesName);
+
+            suppressFileSelectionChanged = true;
+            lstOriginalFiles.ClearSelected();
+
+            for (int index = 0; index < lstOriginalFiles.Items.Count; index++)
+            {
+                FileQueueItem? listItem = lstOriginalFiles.Items[index] as FileQueueItem;
+                if (listItem == null)
+                    continue;
+
+                if (matchingFiles.Any(item => string.Equals(item.FilePath, listItem.FilePath, StringComparison.OrdinalIgnoreCase)))
+                    lstOriginalFiles.SetSelected(index, true);
+            }
+
+            suppressFileSelectionChanged = false;
+
+            PopulateSelectedOriginalFilesPreview();
+            UpdateActionButtons();
+            UpdateFileStatus();
+
+            return matchingFiles.Count;
+        }
+
+        private void PopulateSelectedOriginalFilesPreview()
+        {
+            if (previewItems.Count > 0)
+                return;
+
+            lstPreviewOriginal.Items.Clear();
+            lstPreviewNew.Items.Clear();
+
+            foreach (FileQueueItem queueItem in GetSelectedFileQueueItems())
+            {
+                lstPreviewOriginal.Items.Add(Path.GetFileName(queueItem.FilePath));
+                lstPreviewNew.Items.Add("Pending match - click Match Selected Files");
+            }
+        }
 
         private SeriesDetectionResult DetectSeriesFromLoadedFiles()
         {
@@ -468,7 +538,11 @@ namespace TVSeriesRenamer
 
         private void lstOriginalFiles_SelectedIndexChanged(object sender, EventArgs e)
         {
+            if (suppressFileSelectionChanged)
+                return;
+
             ClearPreview();
+            PopulateSelectedOriginalFilesPreview();
             UpdateActionButtons();
             UpdateFileStatus();
         }
@@ -520,7 +594,15 @@ namespace TVSeriesRenamer
                 }
 
                 ClearPreview();
+                int selectedFileCount = SelectFilesMatchingSeriesName(selectedSeriesName);
+                if (selectedFileCount > 0)
+                {
+                    lblDetectedSeries.Text = $"Detected series: {selectedSeriesName} ({selectedFileCount}/{loadedFiles.Count} files selected)";
+                    lblDetectedSeries.ForeColor = Color.Green;
+                }
+
                 UpdateActionButtons();
+                UpdateFileStatus();
             }
         }
 
@@ -692,7 +774,7 @@ namespace TVSeriesRenamer
             return new RenamePreviewItem { OriginalPath = filePath, NewPath = newPath, Status = "OK", Message = "Ready" };
         }
 
-        private void ApplyRenameAndMove()
+        private async void ApplyRenameAndMove()
         {
             List<RenamePreviewItem> readyItems = previewItems.Where(item => item.Status == "OK").ToList();
 
@@ -757,6 +839,9 @@ namespace TVSeriesRenamer
                 MessageBoxButtons.OK,
                 errorCount > 0 ? MessageBoxIcon.Warning : MessageBoxIcon.Information
             );
+
+            if (loadedFiles.Count > 0)
+                await AutoDetectAndSearchFromFilesAsync();
 
             UpdateActionButtons();
             UpdateFileStatus();
