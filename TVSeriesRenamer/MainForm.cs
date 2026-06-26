@@ -838,37 +838,43 @@ namespace TVSeriesRenamer
             Directory.CreateDirectory(settingsDirectory);
             Directory.CreateDirectory(txtOutputFolder.Text);
 
+            OverwriteDecision overwriteDecision = OverwriteDecision.Ask;
+
             foreach (RenamePreviewItem item in readyItems)
             {
                 try
                 {
-                    bool overwriteAllConfirmed = false;
-                    bool overwriteDecisionMade = false;
 
                     // inside foreach loop, BEFORE File.Exists check
                     if (File.Exists(item.NewPath))
                     {
-                        if (!overwriteDecisionMade)
+                        if (overwriteDecision == OverwriteDecision.Ask)
                         {
                             var result = MessageBox.Show(
-                                "One or more files already exist in the destination.\n\nDo you want to overwrite existing files?",
+                                "File already exists.\n\nYes = Overwrite ALL\nNo = Skip ALL\nCancel = Stop operation",
                                 "Overwrite Confirmation",
-                                MessageBoxButtons.YesNo,
+                                MessageBoxButtons.YesNoCancel,
                                 MessageBoxIcon.Warning
                             );
 
-                            overwriteAllConfirmed = result == DialogResult.Yes;
-                            overwriteDecisionMade = true;
+                            if (result == DialogResult.Yes)
+                                overwriteDecision = OverwriteDecision.YesToAll;
+                            else if (result == DialogResult.No)
+                                overwriteDecision = OverwriteDecision.NoToAll;
+                            else
+                                overwriteDecision = OverwriteDecision.Cancel;
                         }
 
-                        if (!overwriteAllConfirmed)
+                        if (overwriteDecision == OverwriteDecision.Cancel)
+                            break;
+
+                        if (overwriteDecision == OverwriteDecision.NoToAll)
                         {
                             skippedCount++;
-                            logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | SKIP | Target exists (user skipped) | {item.NewPath}");
+                            logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | SKIP | Target exists (No-to-all) | {item.NewPath}");
                             continue;
                         }
 
-                        // overwrite
                         try
                         {
                             File.Delete(item.NewPath);
