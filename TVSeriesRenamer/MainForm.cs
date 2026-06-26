@@ -998,7 +998,7 @@ namespace TVSeriesRenamer
             if (!TryExtractEpisodeCode(originalName, out int seasonNumber, out int episodeNumber, out string episodeCode))
                 return new RenamePreviewItem { OriginalPath = filePath, Status = "NO MATCH", Message = "No SxxExx or 1x01 episode code found" };
 
-            if (!episodeTitles.TryGetValue(episodeCode, out string episodeTitle))
+            if (!episodeTitles.TryGetValue(episodeCode, out string? episodeTitle) || string.IsNullOrWhiteSpace(episodeTitle))
                 return new RenamePreviewItem { OriginalPath = filePath, Status = "NO TVDB TITLE", Message = episodeCode };
 
             string extension = Path.GetExtension(filePath);
