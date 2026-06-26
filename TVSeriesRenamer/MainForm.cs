@@ -26,8 +26,9 @@ namespace TVSeriesRenamer
 
         private readonly ToolTip toolTip = new ToolTip();
         private readonly DataGridView dgvPreview = new DataGridView();
+        private readonly Label lblPreviewSummary = new Label();
 
-        private const string CurrentVersion = "v1.4";
+        private const string CurrentVersion = "v1.5";
         private const string LatestReleaseApiUrl = "https://api.github.com/repos/Cleaner-69/TVSeriesRenamer/releases/latest";
         private const string GitHubUserAgent = "TVSeriesRenamer";
 
@@ -74,7 +75,7 @@ namespace TVSeriesRenamer
             SetupPreviewGrid();
 
             Text = $"TV Series Renamer {CurrentVersion}";
-            lblVersion.Text = "Version 1.4";
+            lblVersion.Text = "Version 1.5";
 
             _ = CheckForUpdatesAsync();
 
@@ -122,6 +123,7 @@ namespace TVSeriesRenamer
             public string ApiKey { get; set; } = "";
             public string NamingFormat { get; set; } = "S01E01";
             public string CustomNamingPattern { get; set; } = "{series} - {code} - {title}";
+            public string LastOutputFolder { get; set; } = "";
         }
 
         private void SetupToolTips()
@@ -146,6 +148,8 @@ namespace TVSeriesRenamer
             toolTip.SetToolTip(chkForceRename, "Override wrong-series safety checks for the current match operation");
             toolTip.SetToolTip(cmbNamingFormat, "Choose how the episode code is written in generated file names");
             toolTip.SetToolTip(txtCustomPattern, "Custom file name pattern. Supported tokens: {series}, {season}, {season00}, {episode}, {episode00}, {code}, {title}");
+            toolTip.SetToolTip(txtOutputFolder, "Last output folder is saved and restored automatically when valid");
+            toolTip.SetToolTip(lblPreviewSummary, "Preview summary: ready, warning, and error counts for the current match result");
         }
 
         private void SetupPreviewGrid()
@@ -171,6 +175,8 @@ namespace TVSeriesRenamer
             dgvPreview.BackgroundColor = SystemColors.Window;
             dgvPreview.BorderStyle = BorderStyle.FixedSingle;
             dgvPreview.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
+            dgvPreview.ShowCellToolTips = true;
+            dgvPreview.CellDoubleClick += dgvPreview_CellDoubleClick;
 
             dgvPreview.Columns.Clear();
             dgvPreview.Columns.Add(new DataGridViewTextBoxColumn { Name = "Status", HeaderText = "Status", FillWeight = 14, SortMode = DataGridViewColumnSortMode.Automatic });
@@ -187,6 +193,32 @@ namespace TVSeriesRenamer
         private void ClearPreviewGrid()
         {
             dgvPreview.Rows.Clear();
+            SetPreviewSummary("Preview: none", Color.DimGray);
+        }
+
+        private void SetPreviewSummary(string text, Color colour)
+        {
+            lblPreviewSummary.Text = text;
+            lblPreviewSummary.ForeColor = colour;
+        }
+
+        private void UpdatePreviewSummary()
+        {
+            if (previewItems.Count == 0)
+            {
+                SetPreviewSummary("Preview: none", Color.DimGray);
+                return;
+            }
+
+            int readyCount = previewItems.Count(item => item.Status == "OK");
+            int errorCount = previewItems.Count(item => item.Status == "ERROR");
+            int warningCount = previewItems.Count - readyCount - errorCount;
+
+            Color summaryColour = errorCount > 0
+                ? Color.Firebrick
+                : warningCount > 0 ? Color.DarkOrange : Color.Green;
+
+            SetPreviewSummary($"Preview: {readyCount} ready | {warningCount} warning | {errorCount} error", summaryColour);
         }
 
         private void AddPreviewGridRow(string status, string originalFile, string newFile, string message)
@@ -194,25 +226,40 @@ namespace TVSeriesRenamer
             int rowIndex = dgvPreview.Rows.Add(status, originalFile, newFile, message);
             DataGridViewRow row = dgvPreview.Rows[rowIndex];
 
+            string tooltip = string.IsNullOrWhiteSpace(newFile)
+                ? $"{status}: {message}"
+                : $"{status}: {newFile} - {message}";
+
+            // Apply tooltip to all cells (correct approach)
+            foreach (DataGridViewCell cell in row.Cells)
+            {
+                cell.ToolTipText = tooltip;
+            }
+
             switch (status.ToUpperInvariant())
             {
                 case "OK":
                     row.DefaultCellStyle.ForeColor = Color.Green;
+                    row.DefaultCellStyle.BackColor = Color.Honeydew;
                     break;
                 case "OVERWRITE":
                     row.DefaultCellStyle.ForeColor = Color.DarkOrange;
+                    row.DefaultCellStyle.BackColor = Color.FloralWhite;
                     break;
                 case "PENDING":
                     row.DefaultCellStyle.ForeColor = Color.DimGray;
+                    row.DefaultCellStyle.BackColor = Color.WhiteSmoke;
                     break;
                 case "SKIP":
                 case "NO MATCH":
                 case "NO TVDB TITLE":
                 case "WRONG SERIES":
                     row.DefaultCellStyle.ForeColor = Color.DarkGoldenrod;
+                    row.DefaultCellStyle.BackColor = Color.LemonChiffon;
                     break;
                 case "ERROR":
                     row.DefaultCellStyle.ForeColor = Color.Firebrick;
+                    row.DefaultCellStyle.BackColor = Color.MistyRose;
                     break;
             }
         }
@@ -228,6 +275,32 @@ namespace TVSeriesRenamer
         private string GetPreviewDisplayNewFile(RenamePreviewItem previewItem)
         {
             return string.IsNullOrWhiteSpace(previewItem.NewPath) ? "" : Path.GetFileName(previewItem.NewPath);
+        }
+
+
+        private void dgvPreview_CellDoubleClick(object? sender, DataGridViewCellEventArgs e)
+        {
+            if (e.RowIndex < 0 || e.RowIndex >= previewItems.Count)
+                return;
+
+            RenamePreviewItem item = previewItems[e.RowIndex];
+            string pathToOpen = File.Exists(item.OriginalPath) ? item.OriginalPath : item.NewPath;
+            if (string.IsNullOrWhiteSpace(pathToOpen) || !File.Exists(pathToOpen))
+                return;
+
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = "explorer.exe",
+                    Arguments = $"/select, \"{pathToOpen}\"",
+                    UseShellExecute = true
+                });
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Could not open file location.\n\n{ex.Message}", "Open Location Failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private void SetupDragDrop()
@@ -661,6 +734,7 @@ namespace TVSeriesRenamer
                 if (dialog.ShowDialog() == DialogResult.OK)
                 {
                     txtOutputFolder.Text = dialog.SelectedPath;
+                    SaveSettings();
                     ClearPreview();
 
                     if (!string.IsNullOrWhiteSpace(selectedSeriesName) &&
@@ -892,8 +966,20 @@ namespace TVSeriesRenamer
                 AddPreviewGridRow(displayStatus, originalFile, displayNewFile, previewItem.Message);
             }
 
+            UpdatePreviewSummary();
+            AutoSizePreviewGridColumns();
             UpdateActionButtons();
             UpdateFileStatus();
+        }
+
+        private void AutoSizePreviewGridColumns()
+        {
+            if (dgvPreview.Rows.Count == 0)
+                return;
+
+            dgvPreview.AutoResizeColumns(DataGridViewAutoSizeColumnsMode.DisplayedCells);
+            foreach (DataGridViewColumn column in dgvPreview.Columns)
+                column.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
         }
 
         private RenamePreviewItem BuildPreviewItem(string filePath)
@@ -1275,7 +1361,8 @@ namespace TVSeriesRenamer
             {
                 ApiKey = apiKey,
                 NamingFormat = GetSelectedNamingFormat(),
-                CustomNamingPattern = txtCustomPattern.Text.Trim()
+                CustomNamingPattern = txtCustomPattern.Text.Trim(),
+                LastOutputFolder = txtOutputFolder.Text.Trim()
             };
             string json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(SettingsFilePath, json);
@@ -1306,6 +1393,7 @@ namespace TVSeriesRenamer
                 }
 
                 ApplyNamingSettings(settings.NamingFormat, settings.CustomNamingPattern);
+                ApplyOutputFolderSetting(settings.LastOutputFolder);
             }
             catch
             {
@@ -1329,6 +1417,17 @@ namespace TVSeriesRenamer
             txtCustomPattern.Enabled = string.Equals(format, "Custom", StringComparison.OrdinalIgnoreCase);
 
             suppressNamingSettingsEvents = false;
+        }
+
+        private void ApplyOutputFolderSetting(string lastOutputFolder)
+        {
+            if (string.IsNullOrWhiteSpace(lastOutputFolder))
+                return;
+
+            if (Directory.Exists(lastOutputFolder))
+            {
+                txtOutputFolder.Text = lastOutputFolder;
+            }
         }
 
         private string GetJsonString(JsonElement element, string propertyName)
