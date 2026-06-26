@@ -25,6 +25,7 @@ namespace TVSeriesRenamer
         }
 
         private readonly ToolTip toolTip = new ToolTip();
+        private readonly DataGridView dgvPreview = new DataGridView();
 
         private const string CurrentVersion = "v1.3";
         private const string LatestReleaseApiUrl = "https://api.github.com/repos/Cleaner-69/TVSeriesRenamer/releases/latest";
@@ -69,6 +70,7 @@ namespace TVSeriesRenamer
             LoadApiKey();
             SetupToolTips();
             SetupDragDrop();
+            SetupPreviewGrid();
 
             Text = $"TV Series Renamer {CurrentVersion}";
             lblVersion.Text = "Version 1.3";
@@ -136,8 +138,91 @@ namespace TVSeriesRenamer
             toolTip.SetToolTip(btnOpenLog, "Open the rename log file");
             toolTip.SetToolTip(lstOriginalFiles, "Original files. Select the files to match and rename.");
             toolTip.SetToolTip(lstPreviewNew, "Generated new file names or match reasons.");
+            toolTip.SetToolTip(dgvPreview, "Rename preview queue with status, original file, target file, and message.");
             toolTip.SetToolTip(lblDetectedSeries, "Detected series suggestion based on loaded file names");
             toolTip.SetToolTip(chkForceRename, "Override wrong-series safety checks for the current match operation");
+        }
+
+        private void SetupPreviewGrid()
+        {
+            labelOriginalPreview.Visible = false;
+            labelNewNames.Visible = false;
+            lstPreviewOriginal.Visible = false;
+            lstPreviewNew.Visible = false;
+
+            dgvPreview.Name = "dgvPreview";
+            dgvPreview.Location = new Point(16, 24);
+            dgvPreview.Size = new Size(1148, 219);
+            dgvPreview.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            dgvPreview.ReadOnly = true;
+            dgvPreview.AllowUserToAddRows = false;
+            dgvPreview.AllowUserToDeleteRows = false;
+            dgvPreview.AllowUserToResizeRows = false;
+            dgvPreview.MultiSelect = true;
+            dgvPreview.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+            dgvPreview.RowHeadersVisible = false;
+            dgvPreview.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.None;
+            dgvPreview.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
+            dgvPreview.BackgroundColor = SystemColors.Window;
+            dgvPreview.BorderStyle = BorderStyle.FixedSingle;
+            dgvPreview.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
+
+            dgvPreview.Columns.Clear();
+            dgvPreview.Columns.Add(new DataGridViewTextBoxColumn { Name = "Status", HeaderText = "Status", FillWeight = 14, SortMode = DataGridViewColumnSortMode.Automatic });
+            dgvPreview.Columns.Add(new DataGridViewTextBoxColumn { Name = "OriginalFile", HeaderText = "Original File", FillWeight = 34, SortMode = DataGridViewColumnSortMode.Automatic });
+            dgvPreview.Columns.Add(new DataGridViewTextBoxColumn { Name = "NewFile", HeaderText = "New File", FillWeight = 34, SortMode = DataGridViewColumnSortMode.Automatic });
+            dgvPreview.Columns.Add(new DataGridViewTextBoxColumn { Name = "Message", HeaderText = "Message", FillWeight = 28, SortMode = DataGridViewColumnSortMode.Automatic });
+
+            if (!groupPreview.Controls.Contains(dgvPreview))
+                groupPreview.Controls.Add(dgvPreview);
+
+            dgvPreview.BringToFront();
+        }
+
+        private void ClearPreviewGrid()
+        {
+            dgvPreview.Rows.Clear();
+        }
+
+        private void AddPreviewGridRow(string status, string originalFile, string newFile, string message)
+        {
+            int rowIndex = dgvPreview.Rows.Add(status, originalFile, newFile, message);
+            DataGridViewRow row = dgvPreview.Rows[rowIndex];
+
+            switch (status.ToUpperInvariant())
+            {
+                case "OK":
+                    row.DefaultCellStyle.ForeColor = Color.Green;
+                    break;
+                case "OVERWRITE":
+                    row.DefaultCellStyle.ForeColor = Color.DarkOrange;
+                    break;
+                case "PENDING":
+                    row.DefaultCellStyle.ForeColor = Color.DimGray;
+                    break;
+                case "SKIP":
+                case "NO MATCH":
+                case "NO TVDB TITLE":
+                case "WRONG SERIES":
+                    row.DefaultCellStyle.ForeColor = Color.DarkGoldenrod;
+                    break;
+                case "ERROR":
+                    row.DefaultCellStyle.ForeColor = Color.Firebrick;
+                    break;
+            }
+        }
+
+        private string GetPreviewDisplayStatus(RenamePreviewItem previewItem)
+        {
+            if (previewItem.Status == "OK" && previewItem.Message.StartsWith("Overwrite", StringComparison.OrdinalIgnoreCase))
+                return "OVERWRITE";
+
+            return previewItem.Status;
+        }
+
+        private string GetPreviewDisplayNewFile(RenamePreviewItem previewItem)
+        {
+            return string.IsNullOrWhiteSpace(previewItem.NewPath) ? "" : Path.GetFileName(previewItem.NewPath);
         }
 
         private void SetupDragDrop()
@@ -194,6 +279,7 @@ namespace TVSeriesRenamer
             previewItems.Clear();
             lstPreviewOriginal.Items.Clear();
             lstPreviewNew.Items.Clear();
+            ClearPreviewGrid();
             UpdateActionButtons();
             UpdateFileStatus();
         }
@@ -332,14 +418,18 @@ namespace TVSeriesRenamer
 
             lstPreviewOriginal.Items.Clear();
             lstPreviewNew.Items.Clear();
+            ClearPreviewGrid();
 
             foreach (FileQueueItem queueItem in GetSelectedFileQueueItems())
             {
-                lstPreviewOriginal.Items.Add(Path.GetFileName(queueItem.FilePath));
-                if (!Directory.Exists(txtOutputFolder.Text))
-                    lstPreviewNew.Items.Add("Choose output folder first");
-                else
-                    lstPreviewNew.Items.Add("Pending match - click Match Selected Files");
+                string originalFile = Path.GetFileName(queueItem.FilePath);
+                string message = !Directory.Exists(txtOutputFolder.Text)
+                    ? "Choose output folder first"
+                    : "Pending match - click Match Selected Files";
+
+                lstPreviewOriginal.Items.Add(originalFile);
+                lstPreviewNew.Items.Add(message);
+                AddPreviewGridRow("PENDING", originalFile, "", message);
             }
         }
 
@@ -721,6 +811,7 @@ namespace TVSeriesRenamer
             previewItems.Clear();
             lstPreviewOriginal.Items.Clear();
             lstPreviewNew.Items.Clear();
+            ClearPreviewGrid();
 
             if (!Directory.Exists(txtOutputFolder.Text))
             {
@@ -755,13 +846,18 @@ namespace TVSeriesRenamer
             {
                 RenamePreviewItem previewItem = BuildPreviewItem(queueItem.FilePath);
                 previewItems.Add(previewItem);
-                lstPreviewOriginal.Items.Add(Path.GetFileName(queueItem.FilePath));
 
+                string originalFile = Path.GetFileName(queueItem.FilePath);
+                string displayStatus = GetPreviewDisplayStatus(previewItem);
+                string displayNewFile = GetPreviewDisplayNewFile(previewItem);
+
+                lstPreviewOriginal.Items.Add(originalFile);
                 lstPreviewNew.Items.Add(
                     previewItem.Status == "OK"
-                        ? $"OK | {Path.GetFileName(previewItem.NewPath)}"
-                        : $"{previewItem.Status} | {previewItem.Message}"
+                        ? $"{displayStatus} | {displayNewFile}"
+                        : $"{displayStatus} | {previewItem.Message}"
                 );
+                AddPreviewGridRow(displayStatus, originalFile, displayNewFile, previewItem.Message);
             }
 
             UpdateActionButtons();
@@ -802,7 +898,7 @@ namespace TVSeriesRenamer
                         OriginalPath = filePath,
                         NewPath = newPath,
                         Status = "OK",
-                        Message = "Overwrite enabled (existing file will be replaced"
+                        Message = "Overwrite enabled (existing file will be replaced)"
                     };
                 }
 
@@ -844,6 +940,19 @@ namespace TVSeriesRenamer
             {
                 try
                 {
+                    if (string.Equals(item.OriginalPath, item.NewPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        skippedCount++;
+                        logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | SKIP | Source equals target | {item.OriginalPath}");
+                        continue;
+                    }
+
+                    if (!File.Exists(item.OriginalPath))
+                    {
+                        skippedCount++;
+                        logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | SKIP | Source not found | {item.OriginalPath}");
+                        continue;
+                    }
 
                     // inside foreach loop, BEFORE File.Exists check
                     if (File.Exists(item.NewPath))
