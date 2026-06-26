@@ -328,7 +328,10 @@ namespace TVSeriesRenamer
             foreach (FileQueueItem queueItem in GetSelectedFileQueueItems())
             {
                 lstPreviewOriginal.Items.Add(Path.GetFileName(queueItem.FilePath));
-                lstPreviewNew.Items.Add("Pending match - click Match Selected Files");
+                if (!Directory.Exists(txtOutputFolder.Text))
+                    lstPreviewNew.Items.Add("Choose output folder first");
+                else
+                    lstPreviewNew.Items.Add("Pending match - click Match Selected Files");
             }
         }
 
@@ -556,7 +559,16 @@ namespace TVSeriesRenamer
                 {
                     txtOutputFolder.Text = dialog.SelectedPath;
                     ClearPreview();
+
+                    if (!string.IsNullOrWhiteSpace(selectedSeriesName) &&
+                        selectedSeriesId != 0 &&
+                        lstOriginalFiles.SelectedItems.Count > 0)
+                    {
+                        PopulateSelectedOriginalFilesPreview();
+                    }
+
                     UpdateActionButtons();
+                    UpdateFileStatus();
                 }
             }
         }
@@ -769,7 +781,26 @@ namespace TVSeriesRenamer
             string newPath = Path.Combine(txtOutputFolder.Text, newName);
 
             if (File.Exists(newPath))
-                return new RenamePreviewItem { OriginalPath = filePath, NewPath = newPath, Status = "SKIP", Message = "Target already exists" };
+            {
+                if (chkForceRename.Checked)
+                {
+                    return new RenamePreviewItem
+                    {
+                        OriginalPath = filePath,
+                        NewPath = newPath,
+                        Status = "OK",
+                        Message = "Overwrite enabled (existing file will be replaced"
+                    };
+                }
+
+                return new RenamePreviewItem
+                {
+                    OriginalPath = filePath,
+                    NewPath = newPath,
+                    Status = "SKIP",
+                    Message = "Target already exists"
+                };
+            }
 
             return new RenamePreviewItem { OriginalPath = filePath, NewPath = newPath, Status = "OK", Message = "Ready" };
         }
@@ -798,20 +829,44 @@ namespace TVSeriesRenamer
             {
                 try
                 {
-                    if (!File.Exists(item.OriginalPath))
-                    {
-                        skippedCount++;
-                        logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | SKIP | Source not found | {item.OriginalPath}");
-                        continue;
-                    }
+                    bool overwriteAllConfirmed = false;
+                    bool overwriteDecisionMade = false;
 
+                    // inside foreach loop, BEFORE File.Exists check
                     if (File.Exists(item.NewPath))
                     {
-                        skippedCount++;
-                        logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | SKIP | Target already exists | {item.NewPath}");
-                        continue;
-                    }
+                        if (!overwriteDecisionMade)
+                        {
+                            var result = MessageBox.Show(
+                                "One or more files already exist in the destination.\n\nDo you want to overwrite existing files?",
+                                "Overwrite Confirmation",
+                                MessageBoxButtons.YesNo,
+                                MessageBoxIcon.Warning
+                            );
 
+                            overwriteAllConfirmed = result == DialogResult.Yes;
+                            overwriteDecisionMade = true;
+                        }
+
+                        if (!overwriteAllConfirmed)
+                        {
+                            skippedCount++;
+                            logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | SKIP | Target exists (user skipped) | {item.NewPath}");
+                            continue;
+                        }
+
+                        // overwrite
+                        try
+                        {
+                            File.Delete(item.NewPath);
+                        }
+                        catch (Exception ex)
+                        {
+                            errorCount++;
+                            logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | ERROR | Could not delete existing file | {item.NewPath} | {ex.Message}");
+                            continue;
+                        }
+                    }
                     File.Move(item.OriginalPath, item.NewPath);
                     successCount++;
                     successfulRenames.Add(new RenamePreviewItem { OriginalPath = item.OriginalPath, NewPath = item.NewPath, Status = "RENAMED", Message = "Moved and renamed" });
