@@ -40,6 +40,10 @@ namespace TVSeriesRenamer
             txtSeriesName = new TextBox();
             labelSeriesName = new Label();
             groupOutput = new GroupBox();
+            txtCustomPattern = new TextBox();
+            labelCustomPattern = new Label();
+            cmbNamingFormat = new ComboBox();
+            labelNamingFormat = new Label();
             btnChooseOutputFolder = new Button();
             txtOutputFolder = new TextBox();
             labelOutputFolder = new Label();
@@ -92,7 +96,7 @@ namespace TVSeriesRenamer
             lblVersion.Name = "lblVersion";
             lblVersion.Size = new Size(63, 15);
             lblVersion.TabIndex = 5;
-            lblVersion.Text = "Version 1.3";
+            lblVersion.Text = "Version 1.4";
             // 
             // btnApiHelp
             // 
@@ -290,15 +294,57 @@ namespace TVSeriesRenamer
             // 
             // groupOutput
             // 
+            groupOutput.Controls.Add(txtCustomPattern);
+            groupOutput.Controls.Add(labelCustomPattern);
+            groupOutput.Controls.Add(cmbNamingFormat);
+            groupOutput.Controls.Add(labelNamingFormat);
             groupOutput.Controls.Add(btnChooseOutputFolder);
             groupOutput.Controls.Add(txtOutputFolder);
             groupOutput.Controls.Add(labelOutputFolder);
             groupOutput.Location = new Point(8, 466);
             groupOutput.Name = "groupOutput";
-            groupOutput.Size = new Size(1180, 70);
+            groupOutput.Size = new Size(1180, 100);
             groupOutput.TabIndex = 3;
             groupOutput.TabStop = false;
             groupOutput.Text = "Output";
+            // 
+            // txtCustomPattern
+            // 
+            txtCustomPattern.Location = new Point(518, 62);
+            txtCustomPattern.Name = "txtCustomPattern";
+            txtCustomPattern.Size = new Size(646, 23);
+            txtCustomPattern.TabIndex = 6;
+            txtCustomPattern.Text = "{series} - {code} - {title}";
+            txtCustomPattern.TextChanged += txtCustomPattern_TextChanged;
+            // 
+            // labelCustomPattern
+            // 
+            labelCustomPattern.AutoSize = true;
+            labelCustomPattern.Location = new Point(405, 66);
+            labelCustomPattern.Name = "labelCustomPattern";
+            labelCustomPattern.Size = new Size(94, 15);
+            labelCustomPattern.TabIndex = 5;
+            labelCustomPattern.Text = "Custom pattern:";
+            // 
+            // cmbNamingFormat
+            // 
+            cmbNamingFormat.DropDownStyle = ComboBoxStyle.DropDownList;
+            cmbNamingFormat.FormattingEnabled = true;
+            cmbNamingFormat.Items.AddRange(new object[] { "S01E01", "1x01", "Custom" });
+            cmbNamingFormat.Location = new Point(110, 62);
+            cmbNamingFormat.Name = "cmbNamingFormat";
+            cmbNamingFormat.Size = new Size(260, 23);
+            cmbNamingFormat.TabIndex = 4;
+            cmbNamingFormat.SelectedIndexChanged += cmbNamingFormat_SelectedIndexChanged;
+            // 
+            // labelNamingFormat
+            // 
+            labelNamingFormat.AutoSize = true;
+            labelNamingFormat.Location = new Point(16, 66);
+            labelNamingFormat.Name = "labelNamingFormat";
+            labelNamingFormat.Size = new Size(88, 15);
+            labelNamingFormat.TabIndex = 3;
+            labelNamingFormat.Text = "Naming format:";
             // 
             // btnChooseOutputFolder
             // 
@@ -337,7 +383,7 @@ namespace TVSeriesRenamer
             groupPreview.Controls.Add(labelOriginalPreview);
             groupPreview.Controls.Add(lstPreviewNew);
             groupPreview.Controls.Add(lstPreviewOriginal);
-            groupPreview.Location = new Point(8, 542);
+            groupPreview.Location = new Point(8, 572);
             groupPreview.Name = "groupPreview";
             groupPreview.Size = new Size(1180, 290);
             groupPreview.TabIndex = 4;
@@ -426,16 +472,16 @@ namespace TVSeriesRenamer
             // 
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(1196, 841);
+            ClientSize = new Size(1196, 871);
             Controls.Add(groupPreview);
             Controls.Add(groupOutput);
             Controls.Add(groupSeries);
             Controls.Add(groupFiles);
             Controls.Add(groupApi);
-            MinimumSize = new Size(1212, 880);
+            MinimumSize = new Size(1212, 910);
             Name = "MainForm";
             StartPosition = FormStartPosition.CenterScreen;
-            Text = "TV Series Renamer v1.3";
+            Text = "TV Series Renamer v1.4";
             groupApi.ResumeLayout(false);
             groupApi.PerformLayout();
             groupFiles.ResumeLayout(false);
@@ -474,6 +520,10 @@ namespace TVSeriesRenamer
         private TextBox txtSeriesName;
         private Label labelSeriesName;
         private GroupBox groupOutput;
+        private TextBox txtCustomPattern;
+        private Label labelCustomPattern;
+        private ComboBox cmbNamingFormat;
+        private Label labelNamingFormat;
         private Button btnChooseOutputFolder;
         private TextBox txtOutputFolder;
         private Label labelOutputFolder;

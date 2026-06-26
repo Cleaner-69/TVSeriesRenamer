@@ -27,7 +27,7 @@ namespace TVSeriesRenamer
         private readonly ToolTip toolTip = new ToolTip();
         private readonly DataGridView dgvPreview = new DataGridView();
 
-        private const string CurrentVersion = "v1.3";
+        private const string CurrentVersion = "v1.4";
         private const string LatestReleaseApiUrl = "https://api.github.com/repos/Cleaner-69/TVSeriesRenamer/releases/latest";
         private const string GitHubUserAgent = "TVSeriesRenamer";
 
@@ -41,6 +41,7 @@ namespace TVSeriesRenamer
         private bool isApiKeyVisible = false;
         private bool suppressSeriesNameTextChanged = false;
         private bool suppressFileSelectionChanged = false;
+        private bool suppressNamingSettingsEvents = false;
 
         private readonly string settingsDirectory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -73,7 +74,7 @@ namespace TVSeriesRenamer
             SetupPreviewGrid();
 
             Text = $"TV Series Renamer {CurrentVersion}";
-            lblVersion.Text = "Version 1.3";
+            lblVersion.Text = "Version 1.4";
 
             _ = CheckForUpdatesAsync();
 
@@ -119,6 +120,8 @@ namespace TVSeriesRenamer
         public class AppSettings
         {
             public string ApiKey { get; set; } = "";
+            public string NamingFormat { get; set; } = "S01E01";
+            public string CustomNamingPattern { get; set; } = "{series} - {code} - {title}";
         }
 
         private void SetupToolTips()
@@ -141,6 +144,8 @@ namespace TVSeriesRenamer
             toolTip.SetToolTip(dgvPreview, "Rename preview queue with status, original file, target file, and message.");
             toolTip.SetToolTip(lblDetectedSeries, "Detected series suggestion based on loaded file names");
             toolTip.SetToolTip(chkForceRename, "Override wrong-series safety checks for the current match operation");
+            toolTip.SetToolTip(cmbNamingFormat, "Choose how the episode code is written in generated file names");
+            toolTip.SetToolTip(txtCustomPattern, "Custom file name pattern. Supported tokens: {series}, {season}, {season00}, {episode}, {episode00}, {code}, {title}");
         }
 
         private void SetupPreviewGrid()
@@ -476,7 +481,7 @@ namespace TVSeriesRenamer
         private string ExtractSeriesSearchCandidate(string filePath)
         {
             string nameWithoutExtension = Path.GetFileNameWithoutExtension(filePath);
-            Match episodeMatch = Regex.Match(nameWithoutExtension, @"S\d{1,2}E\d{1,2}", RegexOptions.IgnoreCase);
+            Match episodeMatch = Regex.Match(nameWithoutExtension, @"S\d{1,2}E\d{1,2}|\b\d{1,2}x\d{1,2}\b", RegexOptions.IgnoreCase);
 
             if (!episodeMatch.Success)
                 return "";
@@ -806,6 +811,33 @@ namespace TVSeriesRenamer
             }
         }
 
+        private void cmbNamingFormat_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            bool isCustom = string.Equals(GetSelectedNamingFormat(), "Custom", StringComparison.OrdinalIgnoreCase);
+            txtCustomPattern.Enabled = isCustom;
+
+            if (suppressNamingSettingsEvents)
+                return;
+
+            SaveSettings();
+            ClearPreview();
+            PopulateSelectedOriginalFilesPreview();
+            UpdateActionButtons();
+            UpdateFileStatus();
+        }
+
+        private void txtCustomPattern_TextChanged(object sender, EventArgs e)
+        {
+            if (suppressNamingSettingsEvents)
+                return;
+
+            SaveSettings();
+            ClearPreview();
+            PopulateSelectedOriginalFilesPreview();
+            UpdateActionButtons();
+            UpdateFileStatus();
+        }
+
         private void BuildMatchPreview()
         {
             previewItems.Clear();
@@ -878,15 +910,15 @@ namespace TVSeriesRenamer
                 return new RenamePreviewItem { OriginalPath = filePath, Status = "WRONG SERIES", Message = $"Selected series: {selectedSeriesName}" };
 
             if (!TryExtractEpisodeCode(originalName, out int seasonNumber, out int episodeNumber, out string episodeCode))
-                return new RenamePreviewItem { OriginalPath = filePath, Status = "NO MATCH", Message = "No SxxExx episode code found" };
+                return new RenamePreviewItem { OriginalPath = filePath, Status = "NO MATCH", Message = "No SxxExx or 1x01 episode code found" };
 
             if (!episodeTitles.TryGetValue(episodeCode, out string episodeTitle))
                 return new RenamePreviewItem { OriginalPath = filePath, Status = "NO TVDB TITLE", Message = episodeCode };
 
-            string safeSeriesName = MakeSafeFileName(selectedSeriesName);
-            string safeEpisodeTitle = MakeSafeFileName(episodeTitle);
             string extension = Path.GetExtension(filePath);
-            string newName = $"{safeSeriesName} - {episodeCode} - {safeEpisodeTitle}{extension}";
+            if (!TryBuildNewFileName(seasonNumber, episodeNumber, episodeCode, episodeTitle, extension, out string newName, out string namingError))
+                return new RenamePreviewItem { OriginalPath = filePath, Status = "ERROR", Message = namingError };
+
             string newPath = Path.Combine(txtOutputFolder.Text, newName);
 
             if (File.Exists(newPath))
@@ -1127,7 +1159,7 @@ namespace TVSeriesRenamer
         private string ExtractSeriesCandidateFromFileName(string fileName)
         {
             string nameWithoutExtension = Path.GetFileNameWithoutExtension(fileName);
-            Match episodeMatch = Regex.Match(nameWithoutExtension, @"S\d{1,2}E\d{1,2}", RegexOptions.IgnoreCase);
+            Match episodeMatch = Regex.Match(nameWithoutExtension, @"S\d{1,2}E\d{1,2}|\b\d{1,2}x\d{1,2}\b", RegexOptions.IgnoreCase);
             if (!episodeMatch.Success)
                 return "";
 
@@ -1156,11 +1188,70 @@ namespace TVSeriesRenamer
 
             Match match = Regex.Match(fileName, @"S(\d+)E(\d+)", RegexOptions.IgnoreCase);
             if (!match.Success)
+                match = Regex.Match(fileName, @"\b(\d{1,2})x(\d{1,2})\b", RegexOptions.IgnoreCase);
+
+            if (!match.Success)
                 return false;
 
             seasonNumber = int.Parse(match.Groups[1].Value);
             episodeNumber = int.Parse(match.Groups[2].Value);
             episodeCode = $"S{seasonNumber:D2}E{episodeNumber:D2}";
+            return true;
+        }
+
+        private string GetSelectedNamingFormat()
+        {
+            return cmbNamingFormat.SelectedItem?.ToString() ?? "S01E01";
+        }
+
+        private bool TryBuildNewFileName(int seasonNumber, int episodeNumber, string episodeCode, string episodeTitle, string extension, out string newName, out string errorMessage)
+        {
+            newName = "";
+            errorMessage = "";
+
+            string selectedFormat = GetSelectedNamingFormat();
+            string safeSeriesName = MakeSafeFileName(selectedSeriesName);
+            string safeEpisodeTitle = MakeSafeFileName(episodeTitle);
+            string episodeTag;
+
+            if (string.Equals(selectedFormat, "1x01", StringComparison.OrdinalIgnoreCase))
+            {
+                episodeTag = $"{seasonNumber}x{episodeNumber:D2}";
+                newName = $"{safeSeriesName} - {episodeTag} - {safeEpisodeTitle}{extension}";
+                return true;
+            }
+
+            if (string.Equals(selectedFormat, "Custom", StringComparison.OrdinalIgnoreCase))
+            {
+                string pattern = txtCustomPattern.Text.Trim();
+                if (string.IsNullOrWhiteSpace(pattern))
+                {
+                    errorMessage = "Custom naming pattern is blank";
+                    return false;
+                }
+
+                string customName = pattern
+                    .Replace("{series}", safeSeriesName)
+                    .Replace("{season}", seasonNumber.ToString())
+                    .Replace("{season00}", seasonNumber.ToString("D2"))
+                    .Replace("{episode}", episodeNumber.ToString())
+                    .Replace("{episode00}", episodeNumber.ToString("D2"))
+                    .Replace("{code}", episodeCode)
+                    .Replace("{title}", safeEpisodeTitle);
+
+                customName = MakeSafeFileName(customName);
+                if (string.IsNullOrWhiteSpace(customName))
+                {
+                    errorMessage = "Custom naming pattern produced a blank file name";
+                    return false;
+                }
+
+                newName = $"{customName}{extension}";
+                return true;
+            }
+
+            episodeTag = episodeCode;
+            newName = $"{safeSeriesName} - {episodeTag} - {safeEpisodeTitle}{extension}";
             return true;
         }
 
@@ -1173,8 +1264,19 @@ namespace TVSeriesRenamer
 
         private void SaveApiKey()
         {
+            SaveSettings();
+        }
+
+        private void SaveSettings()
+        {
             Directory.CreateDirectory(settingsDirectory);
-            AppSettings settings = new AppSettings { ApiKey = apiKey };
+            apiKey = txtApiKey.Text.Trim();
+            AppSettings settings = new AppSettings
+            {
+                ApiKey = apiKey,
+                NamingFormat = GetSelectedNamingFormat(),
+                CustomNamingPattern = txtCustomPattern.Text.Trim()
+            };
             string json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(SettingsFilePath, json);
         }
@@ -1182,22 +1284,51 @@ namespace TVSeriesRenamer
         private void LoadApiKey()
         {
             if (!File.Exists(SettingsFilePath))
+            {
+                ApplyNamingSettings("S01E01", "{series} - {code} - {title}");
                 return;
+            }
 
             try
             {
                 string json = File.ReadAllText(SettingsFilePath);
                 AppSettings? settings = JsonSerializer.Deserialize<AppSettings>(json);
-                if (settings == null || string.IsNullOrWhiteSpace(settings.ApiKey))
+                if (settings == null)
+                {
+                    ApplyNamingSettings("S01E01", "{series} - {code} - {title}");
                     return;
+                }
 
-                apiKey = settings.ApiKey;
-                txtApiKey.Text = apiKey;
+                if (!string.IsNullOrWhiteSpace(settings.ApiKey))
+                {
+                    apiKey = settings.ApiKey;
+                    txtApiKey.Text = apiKey;
+                }
+
+                ApplyNamingSettings(settings.NamingFormat, settings.CustomNamingPattern);
             }
             catch
             {
-                MessageBox.Show("Could not load saved API key settings.");
+                ApplyNamingSettings("S01E01", "{series} - {code} - {title}");
+                MessageBox.Show("Could not load saved application settings.");
             }
+        }
+
+        private void ApplyNamingSettings(string namingFormat, string customNamingPattern)
+        {
+            suppressNamingSettingsEvents = true;
+
+            string format = string.IsNullOrWhiteSpace(namingFormat) ? "S01E01" : namingFormat.Trim();
+            if (!cmbNamingFormat.Items.Contains(format))
+                format = "S01E01";
+
+            cmbNamingFormat.SelectedItem = format;
+            txtCustomPattern.Text = string.IsNullOrWhiteSpace(customNamingPattern)
+                ? "{series} - {code} - {title}"
+                : customNamingPattern.Trim();
+            txtCustomPattern.Enabled = string.Equals(format, "Custom", StringComparison.OrdinalIgnoreCase);
+
+            suppressNamingSettingsEvents = false;
         }
 
         private string GetJsonString(JsonElement element, string propertyName)
