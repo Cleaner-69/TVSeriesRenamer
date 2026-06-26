@@ -28,7 +28,7 @@ namespace TVSeriesRenamer
         private readonly DataGridView dgvPreview = new DataGridView();
         private readonly Label lblPreviewSummary = new Label();
 
-        private const string CurrentVersion = "v1.5";
+        private const string CurrentVersion = "v1.6";
         private const string LatestReleaseApiUrl = "https://api.github.com/repos/Cleaner-69/TVSeriesRenamer/releases/latest";
         private const string GitHubUserAgent = "TVSeriesRenamer";
 
@@ -75,7 +75,7 @@ namespace TVSeriesRenamer
             SetupPreviewGrid();
 
             Text = $"TV Series Renamer {CurrentVersion}";
-            lblVersion.Text = "Version 1.5";
+            lblVersion.Text = "Version 1.6";
 
             _ = CheckForUpdatesAsync();
 
@@ -95,6 +95,20 @@ namespace TVSeriesRenamer
             public string NewPath { get; set; } = "";
             public string Status { get; set; } = "";
             public string Message { get; set; } = "";
+        }
+
+        private class CompletedRenameOperation
+        {
+            public string OriginalPath { get; set; } = "";
+            public string NewPath { get; set; } = "";
+            public string BackupPath { get; set; } = "";
+        }
+
+        private class RenameOperationPlan
+        {
+            public List<RenamePreviewItem> ReadyItems { get; set; } = new List<RenamePreviewItem>();
+            public List<string> BlockingIssues { get; set; } = new List<string>();
+            public List<RenamePreviewItem> ExistingTargetItems { get; set; } = new List<RenamePreviewItem>();
         }
 
         public class SeriesSearchResult
@@ -1034,111 +1048,130 @@ namespace TVSeriesRenamer
 
         private async void ApplyRenameAndMove()
         {
-            List<RenamePreviewItem> readyItems = previewItems.Where(item => item.Status == "OK").ToList();
-
-            if (readyItems.Count == 0)
+            RenameOperationPlan plan = BuildRenameOperationPlan();
+            if (plan.ReadyItems.Count == 0)
             {
-                MessageBox.Show("There are no matched files ready to rename.");
+                MessageBox.Show("There are no matched files ready to rename.", "Nothing to Rename", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                UpdateActionButtons();
+                return;
+            }
+
+            if (plan.BlockingIssues.Count > 0)
+            {
+                string issueText = string.Join("\n", plan.BlockingIssues.Take(12));
+                if (plan.BlockingIssues.Count > 12)
+                    issueText += $"\n...and {plan.BlockingIssues.Count - 12} more issue(s).";
+
+                MessageBox.Show(
+                    $"Rename pre-flight validation failed. No files were moved.\n\n{issueText}",
+                    "Rename Blocked",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning
+                );
+                UpdateActionButtons();
+                return;
+            }
+
+            OverwriteDecision overwriteDecision = ResolveOverwriteDecision(plan.ExistingTargetItems.Count);
+            if (overwriteDecision == OverwriteDecision.Cancel)
+            {
+                MessageBox.Show("Rename operation cancelled before any files were moved.", "Rename Cancelled", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                UpdateActionButtons();
+                return;
+            }
+
+            List<RenamePreviewItem> executionItems = plan.ReadyItems;
+            int skippedCount = 0;
+            if (overwriteDecision == OverwriteDecision.NoToAll)
+            {
+                executionItems = plan.ReadyItems
+                    .Where(item => !File.Exists(item.NewPath))
+                    .ToList();
+                skippedCount = plan.ReadyItems.Count - executionItems.Count;
+            }
+
+            if (executionItems.Count == 0)
+            {
+                MessageBox.Show("All ready items were skipped because target files already exist.", "Rename Skipped", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 UpdateActionButtons();
                 return;
             }
 
             int successCount = 0;
-            int skippedCount = 0;
             int errorCount = 0;
-            List<RenamePreviewItem> successfulRenames = new List<RenamePreviewItem>();
+            int rollbackSuccessCount = 0;
+            int rollbackErrorCount = 0;
+            string batchId = DateTime.Now.ToString("yyyyMMddHHmmss");
+            List<CompletedRenameOperation> completedOperations = new List<CompletedRenameOperation>();
             List<string> logEntries = new List<string>();
 
             Directory.CreateDirectory(settingsDirectory);
             Directory.CreateDirectory(txtOutputFolder.Text);
+            logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | BATCH START | {batchId} | Items: {executionItems.Count} | Existing targets: {plan.ExistingTargetItems.Count} | Overwrite: {overwriteDecision}");
 
-            OverwriteDecision overwriteDecision = OverwriteDecision.Ask;
-
-            foreach (RenamePreviewItem item in readyItems)
+            foreach (RenamePreviewItem item in executionItems)
             {
-                try
+                bool moved = TryRenameItemWithRollbackTracking(
+                    item,
+                    overwriteDecision == OverwriteDecision.YesToAll,
+                    completedOperations,
+                    logEntries,
+                    out string errorMessage
+                );
+
+                if (moved)
                 {
-                    if (string.Equals(item.OriginalPath, item.NewPath, StringComparison.OrdinalIgnoreCase))
-                    {
-                        skippedCount++;
-                        logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | SKIP | Source equals target | {item.OriginalPath}");
-                        continue;
-                    }
-
-                    if (!File.Exists(item.OriginalPath))
-                    {
-                        skippedCount++;
-                        logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | SKIP | Source not found | {item.OriginalPath}");
-                        continue;
-                    }
-
-                    // inside foreach loop, BEFORE File.Exists check
-                    if (File.Exists(item.NewPath))
-                    {
-                        if (overwriteDecision == OverwriteDecision.Ask)
-                        {
-                            var result = MessageBox.Show(
-                                "File already exists.\n\nYes = Overwrite ALL\nNo = Skip ALL\nCancel = Stop operation",
-                                "Overwrite Confirmation",
-                                MessageBoxButtons.YesNoCancel,
-                                MessageBoxIcon.Warning
-                            );
-
-                            if (result == DialogResult.Yes)
-                                overwriteDecision = OverwriteDecision.YesToAll;
-                            else if (result == DialogResult.No)
-                                overwriteDecision = OverwriteDecision.NoToAll;
-                            else
-                                overwriteDecision = OverwriteDecision.Cancel;
-                        }
-
-                        if (overwriteDecision == OverwriteDecision.Cancel)
-                            break;
-
-                        if (overwriteDecision == OverwriteDecision.NoToAll)
-                        {
-                            skippedCount++;
-                            logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | SKIP | Target exists (No-to-all) | {item.NewPath}");
-                            continue;
-                        }
-
-                        try
-                        {
-                            File.Delete(item.NewPath);
-                        }
-                        catch (Exception ex)
-                        {
-                            errorCount++;
-                            logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | ERROR | Could not delete existing file | {item.NewPath} | {ex.Message}");
-                            continue;
-                        }
-                    }
-                    File.Move(item.OriginalPath, item.NewPath);
                     successCount++;
-                    successfulRenames.Add(new RenamePreviewItem { OriginalPath = item.OriginalPath, NewPath = item.NewPath, Status = "RENAMED", Message = "Moved and renamed" });
-                    logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | RENAMED | {item.OriginalPath} -> {item.NewPath}");
+                    continue;
                 }
-                catch (Exception ex)
+
+                errorCount++;
+                logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | BATCH ERROR | {batchId} | Stopping batch after failure | {errorMessage}");
+
+                if (completedOperations.Count > 0)
                 {
-                    errorCount++;
-                    logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | ERROR | {item.OriginalPath} -> {item.NewPath} | {ex.Message}");
+                    DialogResult rollbackPrompt = MessageBox.Show(
+                        "A rename operation failed after some files were already moved.\n\nDo you want to rollback the successful moves from this batch?",
+                        "Rollback Available",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Warning
+                    );
+
+                    if (rollbackPrompt == DialogResult.Yes)
+                    {
+                        RollbackCompletedOperations(completedOperations, logEntries, out rollbackSuccessCount, out rollbackErrorCount);
+                        successCount = Math.Max(0, successCount - rollbackSuccessCount);
+                    }
                 }
+                break;
             }
 
-            if (logEntries.Count > 0)
-                File.AppendAllLines(LogFilePath, logEntries);
+            if (rollbackSuccessCount == 0 && completedOperations.Count > 0)
+            {
+                DeleteRollbackBackups(completedOperations, logEntries);
+                List<RenamePreviewItem> successfulRenames = completedOperations
+                    .Select(operation => new RenamePreviewItem
+                    {
+                        OriginalPath = operation.OriginalPath,
+                        NewPath = operation.NewPath,
+                        Status = "RENAMED",
+                        Message = "Moved and renamed"
+                    })
+                    .ToList();
 
-            if (successfulRenames.Count > 0)
                 undoStack.Push(successfulRenames);
+                RemoveSuccessfulFilesFromWorkList(successfulRenames);
+            }
 
-            RemoveSuccessfulFilesFromWorkList(successfulRenames);
+            logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | BATCH END | {batchId} | Success: {successCount} | Skipped: {skippedCount} | Errors: {errorCount} | RolledBack: {rollbackSuccessCount} | RollbackErrors: {rollbackErrorCount}");
+            File.AppendAllLines(LogFilePath, logEntries);
+
             ClearPreview();
-
             MessageBox.Show(
-                $"Rename and move completed.\n\nMoved/Renamed: {successCount}\nSkipped: {skippedCount}\nErrors: {errorCount}\n\nLog file:\n{LogFilePath}",
+                $"Rename and move completed.\n\nMoved/Renamed: {successCount}\nSkipped: {skippedCount}\nErrors: {errorCount}\nRolled back: {rollbackSuccessCount}\nRollback errors: {rollbackErrorCount}\n\nLog file:\n{LogFilePath}",
                 "Rename Result",
                 MessageBoxButtons.OK,
-                errorCount > 0 ? MessageBoxIcon.Warning : MessageBoxIcon.Information
+                errorCount > 0 || rollbackErrorCount > 0 ? MessageBoxIcon.Warning : MessageBoxIcon.Information
             );
 
             if (loadedFiles.Count > 0)
@@ -1146,6 +1179,209 @@ namespace TVSeriesRenamer
 
             UpdateActionButtons();
             UpdateFileStatus();
+        }
+
+        private RenameOperationPlan BuildRenameOperationPlan()
+        {
+            RenameOperationPlan plan = new RenameOperationPlan
+            {
+                ReadyItems = previewItems.Where(item => item.Status == "OK").ToList()
+            };
+
+            if (!Directory.Exists(txtOutputFolder.Text))
+                plan.BlockingIssues.Add("Output folder does not exist.");
+
+            foreach (RenamePreviewItem item in plan.ReadyItems)
+            {
+                string originalFile = string.IsNullOrWhiteSpace(item.OriginalPath) ? "<blank source>" : Path.GetFileName(item.OriginalPath);
+
+                if (string.IsNullOrWhiteSpace(item.OriginalPath))
+                    plan.BlockingIssues.Add("A ready item has a blank source path.");
+                else if (!File.Exists(item.OriginalPath))
+                    plan.BlockingIssues.Add($"Source file not found: {originalFile}");
+
+                if (string.IsNullOrWhiteSpace(item.NewPath))
+                {
+                    plan.BlockingIssues.Add($"Target path is blank for: {originalFile}");
+                    continue;
+                }
+
+                string? targetDirectory = Path.GetDirectoryName(item.NewPath);
+                if (string.IsNullOrWhiteSpace(targetDirectory) || !Directory.Exists(targetDirectory))
+                    plan.BlockingIssues.Add($"Target folder does not exist for: {originalFile}");
+
+                if (!string.IsNullOrWhiteSpace(item.OriginalPath) &&
+                    string.Equals(item.OriginalPath, item.NewPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    plan.BlockingIssues.Add($"Source and target are the same: {originalFile}");
+                }
+
+                if (File.Exists(item.NewPath))
+                    plan.ExistingTargetItems.Add(item);
+            }
+
+            var duplicateTargets = plan.ReadyItems
+                .Where(item => !string.IsNullOrWhiteSpace(item.NewPath))
+                .GroupBy(item => item.NewPath, StringComparer.OrdinalIgnoreCase)
+                .Where(group => group.Count() > 1)
+                .ToList();
+
+            foreach (var duplicateTarget in duplicateTargets)
+            {
+                plan.BlockingIssues.Add($"Duplicate target in batch: {Path.GetFileName(duplicateTarget.Key)} ({duplicateTarget.Count()} items)");
+            }
+
+            return plan;
+        }
+
+        private OverwriteDecision ResolveOverwriteDecision(int existingTargetCount)
+        {
+            if (existingTargetCount == 0)
+                return OverwriteDecision.YesToAll;
+
+            DialogResult result = MessageBox.Show(
+                $"{existingTargetCount} target file(s) already exist.\n\nYes = overwrite all existing targets\nNo = skip all existing targets\nCancel = stop before making changes",
+                "Overwrite Confirmation",
+                MessageBoxButtons.YesNoCancel,
+                MessageBoxIcon.Warning
+            );
+
+            if (result == DialogResult.Yes)
+                return OverwriteDecision.YesToAll;
+            if (result == DialogResult.No)
+                return OverwriteDecision.NoToAll;
+            return OverwriteDecision.Cancel;
+        }
+
+        private bool TryRenameItemWithRollbackTracking(
+            RenamePreviewItem item,
+            bool overwriteExisting,
+            List<CompletedRenameOperation> completedOperations,
+            List<string> logEntries,
+            out string errorMessage)
+        {
+            errorMessage = "";
+            string backupPath = "";
+
+            try
+            {
+                if (File.Exists(item.NewPath))
+                {
+                    if (!overwriteExisting)
+                    {
+                        errorMessage = "Target exists and overwrite was not approved.";
+                        logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | SKIP | Target exists | {item.NewPath}");
+                        return false;
+                    }
+
+                    backupPath = BuildRollbackBackupPath(item.NewPath);
+                    File.Move(item.NewPath, backupPath);
+                    logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | BACKUP | Existing target moved to rollback backup | {item.NewPath} -> {backupPath}");
+                }
+
+                File.Move(item.OriginalPath, item.NewPath);
+                completedOperations.Add(new CompletedRenameOperation
+                {
+                    OriginalPath = item.OriginalPath,
+                    NewPath = item.NewPath,
+                    BackupPath = backupPath
+                });
+                logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | RENAMED | {item.OriginalPath} -> {item.NewPath}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                errorMessage = ex.Message;
+                logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | ERROR | {item.OriginalPath} -> {item.NewPath} | {ex.Message}");
+
+                if (!string.IsNullOrWhiteSpace(backupPath) && File.Exists(backupPath) && !File.Exists(item.NewPath))
+                {
+                    try
+                    {
+                        File.Move(backupPath, item.NewPath);
+                        logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | RESTORE BACKUP | {backupPath} -> {item.NewPath}");
+                    }
+                    catch (Exception restoreEx)
+                    {
+                        logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | RESTORE BACKUP ERROR | {backupPath} -> {item.NewPath} | {restoreEx.Message}");
+                    }
+                }
+                return false;
+            }
+        }
+
+        private string BuildRollbackBackupPath(string targetPath)
+        {
+            string directory = Path.GetDirectoryName(targetPath) ?? txtOutputFolder.Text;
+            string fileName = Path.GetFileName(targetPath);
+            string backupPath;
+            int attempt = 0;
+
+            do
+            {
+                attempt++;
+                backupPath = Path.Combine(directory, $".{fileName}.rollback-{DateTime.Now:yyyyMMddHHmmss}-{attempt}.bak");
+            }
+            while (File.Exists(backupPath));
+
+            return backupPath;
+        }
+
+        private void RollbackCompletedOperations(
+            List<CompletedRenameOperation> completedOperations,
+            List<string> logEntries,
+            out int rollbackSuccessCount,
+            out int rollbackErrorCount)
+        {
+            rollbackSuccessCount = 0;
+            rollbackErrorCount = 0;
+            logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | ROLLBACK START | Items: {completedOperations.Count}");
+
+            foreach (CompletedRenameOperation operation in completedOperations.AsEnumerable().Reverse())
+            {
+                try
+                {
+                    if (File.Exists(operation.NewPath) && !File.Exists(operation.OriginalPath))
+                    {
+                        File.Move(operation.NewPath, operation.OriginalPath);
+                        logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | ROLLBACK MOVE | {operation.NewPath} -> {operation.OriginalPath}");
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(operation.BackupPath) && File.Exists(operation.BackupPath) && !File.Exists(operation.NewPath))
+                    {
+                        File.Move(operation.BackupPath, operation.NewPath);
+                        logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | ROLLBACK RESTORE TARGET | {operation.BackupPath} -> {operation.NewPath}");
+                    }
+
+                    rollbackSuccessCount++;
+                }
+                catch (Exception ex)
+                {
+                    rollbackErrorCount++;
+                    logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | ROLLBACK ERROR | {operation.NewPath} -> {operation.OriginalPath} | {ex.Message}");
+                }
+            }
+
+            logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | ROLLBACK END | Restored: {rollbackSuccessCount} | Errors: {rollbackErrorCount}");
+        }
+
+        private void DeleteRollbackBackups(List<CompletedRenameOperation> completedOperations, List<string> logEntries)
+        {
+            foreach (CompletedRenameOperation operation in completedOperations)
+            {
+                if (string.IsNullOrWhiteSpace(operation.BackupPath) || !File.Exists(operation.BackupPath))
+                    continue;
+
+                try
+                {
+                    File.Delete(operation.BackupPath);
+                    logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | BACKUP DELETE | {operation.BackupPath}");
+                }
+                catch (Exception ex)
+                {
+                    logEntries.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | BACKUP DELETE ERROR | {operation.BackupPath} | {ex.Message}");
+                }
+            }
         }
 
         private void RemoveSuccessfulFilesFromWorkList(List<RenamePreviewItem> successfulRenames)

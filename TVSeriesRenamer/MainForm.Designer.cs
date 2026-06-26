@@ -96,7 +96,7 @@ namespace TVSeriesRenamer
             lblVersion.Name = "lblVersion";
             lblVersion.Size = new Size(63, 15);
             lblVersion.TabIndex = 5;
-            lblVersion.Text = "Version 1.5";
+            lblVersion.Text = "Version 1.6";
             // 
             // btnApiHelp
             // 
@@ -481,7 +481,7 @@ namespace TVSeriesRenamer
             MinimumSize = new Size(1212, 910);
             Name = "MainForm";
             StartPosition = FormStartPosition.CenterScreen;
-            Text = "TV Series Renamer v1.5";
+            Text = "TV Series Renamer v1.6";
             groupApi.ResumeLayout(false);
             groupApi.PerformLayout();
             groupFiles.ResumeLayout(false);
